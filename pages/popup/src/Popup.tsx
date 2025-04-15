@@ -1,68 +1,104 @@
 import { useStorage, withErrorBoundary, withSuspense } from '@extension/shared';
 import { exampleThemeStorage } from '@extension/storage';
 import '@src/Popup.css';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FaSquareFull } from 'react-icons/fa';
 
-const notificationOptions = {
+const notifyOpts = {
   type: 'basic',
   iconUrl: chrome.runtime.getURL('icon-34.png'),
   title: 'Injecting content script error',
-  message: 'You cannot inject script here!',
+  message: 'The extension is not allowed to inject content script into this page.',
 } as const;
 
 const Popup = () => {
   const theme = useStorage(exampleThemeStorage);
   const isLight = theme === 'light';
-  const [isTranslating, setIsTranslating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [readText, setReadText] = useState<string>('...');
 
   const handleTranslate = async () => {
-    setIsTranslating(!isTranslating);
+    setIsListening(!isListening);
   };
 
-  const handleButtonColor = () => {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    return (
+      <div>
+        <h1>Speech Recognition not supported</h1>
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    console.log(`${isListening ? 'starting' : 'stoping'} listening`);
+    injectContentScript();
+  }, [isListening]);
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log(message);
+  });
+
+  const getButtonColor = () => {
     const baseColor = isLight ? 'bg-blue-200 text-black' : 'bg-gray-700 text-white';
-    if (isTranslating) {
+    if (isListening) {
       return `bg-red-600 animate-pulse`;
     }
     return baseColor;
   };
 
+  function addListenerToDocument(isListening: boolean) {
+    // @ts-expect-error
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+
+    recognition.addEventListener('result', (event: any) => {
+      const transcript = Array.from(event.results)
+        .map((result: any) => result[0].transcript)
+        .join('');
+      console.log(transcript);
+
+      chrome.runtime.sendMessage({ transcript });
+    });
+
+    if (isListening) {
+      recognition.start();
+    } else {
+      recognition.stop();
+    }
+  }
+
   const injectContentScript = async () => {
     const [tab] = await chrome.tabs.query({ currentWindow: true, active: true });
-
-    if (tab.url!.startsWith('about:') || tab.url!.startsWith('chrome:')) {
-      chrome.notifications.create('inject-error', notificationOptions);
-    }
 
     await chrome.scripting
       .executeScript({
         target: { tabId: tab.id! },
-        files: ['/content-runtime/index.iife.js'],
+        func: addListenerToDocument,
+        args: [isListening],
       })
-      .catch(err => {
-        // Handling errors related to other paths
-        if (err.message.includes('Cannot access a chrome:// URL')) {
-          chrome.notifications.create('inject-error', notificationOptions);
-        }
-      });
+      .catch(() => chrome.notifications.create('inject-error', notifyOpts));
   };
 
   return (
-    <div className={`App ${isLight ? 'bg-slate-50' : 'bg-gray-800'}`}>
-      <div className={isLight ? 'text-gray-900' : 'text-gray-100'}>
-        <p className="mb-4 text-xl font-extrabold leading-none tracking-tight text-gray-900 md:text-5xl lg:text-6xl dark:text-white">
-          Translate in one click any meating in realtime
+    <div
+      className={`flex p-2 flex-col select-none h-screen ${isLight ? 'bg-slate-50 text-gray-900' : 'bg-gray-800 text-gray-100'}`}>
+      <div className="text-center">
+        <p className="mb-4 text-xl font-extrabold leading-none tracking-tight md:text-5xl lg:text-6xl dark:text-white">
+          Translate in one click any call in realtime
         </p>
+      </div>
 
-        <div className="flex flex-col items-center p-4">
-          <div
-            onClick={handleTranslate}
-            className={'font-bold p-2 rounded shadow hover:scale-105 ' + handleButtonColor()}>
-            <FaSquareFull size={14} />
-          </div>
-          <p className="mt-2">Click the square to toggle translation.</p>
+      <div className="flex items-center">{isListening ? <h1>Listening: {readText}</h1> : null}</div>
+
+      <div className="flex flex-col flex-1 mt-auto items-center p-4">
+        <div
+          onClick={handleTranslate}
+          className={'font-bold p-2 mt-auto rounded shadow hover:scale-105 ' + getButtonColor()}>
+          <FaSquareFull size={14} />
         </div>
+        <p className="mt-2">* Click the square to toggle translation.</p>
       </div>
     </div>
   );
