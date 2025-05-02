@@ -30,12 +30,15 @@ const Popup = () => {
   }
 
   useEffect(() => {
-    console.log(`${isListening ? 'starting' : 'stoping'} listening`);
     injectContentScript();
+  }, [])
+
+  useEffect(() => {
   }, [isListening]);
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log(message);
+    console.log(message)
+    setReadText(message.transcript!)
   });
 
   const getButtonColor = () => {
@@ -46,11 +49,11 @@ const Popup = () => {
     return baseColor;
   };
 
-  function addListenerToDocument(isListening: boolean) {
+  function handleSpeaking(isListening: boolean) {
     // @ts-expect-error
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = 'pt-BR';
     recognition.continuous = true;
 
     recognition.addEventListener('result', (event: any) => {
@@ -72,10 +75,26 @@ const Popup = () => {
   const injectContentScript = async () => {
     const [tab] = await chrome.tabs.query({ currentWindow: true, active: true });
 
+    // chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
+    //   if (!stream) {
+    //     return 
+    //   }
+
+    //   const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+    //   recorder.ondataavailable = async (event) => {
+    //     console.log(event.data);
+    //   };
+
+    //   recorder.start(1000); 
+    // })
+
+
+
     await chrome.scripting
       .executeScript({
         target: { tabId: tab.id! },
-        func: addListenerToDocument,
+        func: handleSpeaking,
         args: [isListening],
       })
       .catch(() => chrome.notifications.create('inject-error', notifyOpts));
