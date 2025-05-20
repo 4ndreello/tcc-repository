@@ -16,6 +16,7 @@ const Popup = () => {
   const isLight = theme === 'light';
   const [isListening, setIsListening] = useState(false);
   const [readText, setReadText] = useState<string>('...');
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
 
   const handleTranslate = async () => {
     setIsListening(!isListening);
@@ -30,15 +31,29 @@ const Popup = () => {
   }
 
   useEffect(() => {
-    injectContentScript();
-  }, [])
+    chrome.tabCapture.capture({ audio: true, video: false }, stream => {
+      if (!stream) {
+        return;
+      }
+
+      initMediaRecorder(stream);
+    });
+  }, []);
 
   useEffect(() => {
+    if (isListening) {
+      mediaRecorder?.start();
+      return;
+    }
+
+    mediaRecorder?.pause();
   }, [isListening]);
 
+  useEffect(() => {}, [isListening]);
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log(message)
-    setReadText(message.transcript!)
+    console.log(message);
+    setReadText(message.transcript!);
   });
 
   const getButtonColor = () => {
@@ -72,33 +87,20 @@ const Popup = () => {
     }
   }
 
-  const injectContentScript = async () => {
-    const [tab] = await chrome.tabs.query({ currentWindow: true, active: true });
+  function initMediaRecorder(stream?: MediaStream) {
+    if (!mediaRecorder && stream) {
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      recorder.ondataavailable = async (event: any) => {
+        console.log(event.data);
+      };
 
-    // chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
-    //   if (!stream) {
-    //     return 
-    //   }
+      setMediaRecorder(recorder);
 
-    //   const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      return recorder;
+    }
 
-    //   recorder.ondataavailable = async (event) => {
-    //     console.log(event.data);
-    //   };
-
-    //   recorder.start(1000); 
-    // })
-
-
-
-    await chrome.scripting
-      .executeScript({
-        target: { tabId: tab.id! },
-        func: handleSpeaking,
-        args: [isListening],
-      })
-      .catch(() => chrome.notifications.create('inject-error', notifyOpts));
-  };
+    return mediaRecorder;
+  }
 
   return (
     <div
