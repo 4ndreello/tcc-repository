@@ -17,9 +17,11 @@ Understanding the Mel Spectrogram: https://medium.com/analytics-vidhya/understan
 Robust Speech Recognition via Large-Scale Weak Supervision (Whipser paper): https://arxiv.org/pdf/2212.04356
 
 ## Important subjects
-Fonema: https://pt.wikipedia.org/wiki/Fonema
+Fonema -> https://pt.wikipedia.org/wiki/Fonema
 
-Possible to use for real-time / streaming tasks?: https://github.com/openai/whisper/discussions/2
+Possible to use for real-time / streaming tasks? -> https://github.com/openai/whisper/discussions/2
+
+Spectrograms: an Introduction -> https://www.youtube.com/watch?v=_FatxGN3vAM 
 
 ## TODO
 1. Understand the possible usage of [diart framework](https://github.com/juanmc2005/diart) with whisper.
