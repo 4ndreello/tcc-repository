@@ -1,10 +1,9 @@
-// Check if overlay already exists
+// check if overlay already exists
 if (!document.getElementById("translation-overlay")) {
-  // State
   let translations = [];
   const MAX_TRANSLATIONS = 5;
 
-  // Create overlay container
+  // create overlay container
   const overlay = document.createElement("div");
   overlay.id = "translation-overlay";
   overlay.innerHTML = `
@@ -26,7 +25,7 @@ if (!document.getElementById("translation-overlay")) {
 
   document.body.appendChild(overlay);
 
-  // Make overlay draggable
+  // make overlay draggable
   let isDragging = false;
   let currentX;
   let currentY;
@@ -71,7 +70,6 @@ if (!document.getElementById("translation-overlay")) {
     overlay.style.transition = "";
   }
 
-  // Controls
   const minimizeBtn = overlay.querySelector(".minimize-btn");
   const closeBtn = overlay.querySelector(".close-btn");
   const content = overlay.querySelector(".overlay-content");
@@ -96,7 +94,7 @@ if (!document.getElementById("translation-overlay")) {
     chrome.runtime.sendMessage({ type: "stop_capture" });
   });
 
-  // Add translation to overlay
+  // add translation to overlay
   function addTranslation(data) {
     console.log("add translation", data);
     const container = overlay.querySelector(".translations-container");
@@ -104,7 +102,7 @@ if (!document.getElementById("translation-overlay")) {
 
     noTranslations.style.display = "none";
 
-    // Create translation element
+    // create translation element
     const translationEl = document.createElement("div");
     translationEl.className = "translation-item";
     translationEl.innerHTML = `
@@ -115,13 +113,13 @@ if (!document.getElementById("translation-overlay")) {
       ).toLocaleTimeString()}</div>
     `;
 
-    // Add to beginning
+    // add to beginning
     container.insertBefore(translationEl, container.firstChild);
 
-    // Animate in
+    // animate in
     setTimeout(() => translationEl.classList.add("show"), 10);
 
-    // Remove old translations
+    // remove old translations
     translations.unshift(data);
     if (translations.length > MAX_TRANSLATIONS) {
       const removed = container.lastElementChild;
@@ -130,13 +128,13 @@ if (!document.getElementById("translation-overlay")) {
       translations.pop();
     }
 
-    // Flash status dot
+    // flash status dot
     const statusDot = overlay.querySelector(".status-dot");
     statusDot.classList.add("flash");
     setTimeout(() => statusDot.classList.remove("flash"), 500);
   }
 
-  // Listen for messages from background
+  // listen for messages from background
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("received in content", request);
     if (request.type === "new_translation") {

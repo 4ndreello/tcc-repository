@@ -1,5 +1,3 @@
-// offscreen.js
-
 let mediaRecorder;
 let audioChunks = [];
 

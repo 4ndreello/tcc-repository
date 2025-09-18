@@ -8,12 +8,8 @@ const CONFIG = {
   audioChunkSize: 1000, // ms
 };
 
-// =================================================================
-// OFFSCREEN DOCUMENT MANAGEMENT
-// =================================================================
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
-// Cria o documento offscreen se ele não existir
 async function setupOffscreenDocument() {
   const existingContexts = await chrome.runtime.getContexts({
     contextTypes: ["OFFSCREEN_DOCUMENT"],
@@ -31,14 +27,10 @@ async function setupOffscreenDocument() {
   });
 }
 
-// Fecha o documento offscreen
 async function closeOffscreenDocument() {
   await chrome.offscreen.closeDocument().catch(() => {});
 }
 
-// =================================================================
-// WEBSOCKET LOGIC (Sem alterações)
-// =================================================================
 function connectWebSocket() {
   if (websocket?.readyState === WebSocket.OPEN) return;
 
@@ -120,10 +112,6 @@ function mockWebSocket() {
   updateStatus("mock_mode");
 }
 
-// =================================================================
-// CAPTURE LOGIC (Alterado para usar Offscreen)
-// =================================================================
-
 async function startCapture(tabId) {
   if (isCapturing) {
     console.warn("A captura já está em andamento.");
@@ -134,15 +122,12 @@ async function startCapture(tabId) {
     isCapturing = true;
     currentTabId = tabId;
 
-    // 1. Garante que o documento offscreen está pronto
     await setupOffscreenDocument();
 
-    // 2. Obtém o ID do stream da aba
     const streamId = await chrome.tabCapture.getMediaStreamId({
       targetTabId: tabId,
     });
 
-    // 3. Envia o ID para o offscreen document para iniciar a captura
     chrome.runtime.sendMessage({
       type: "start-capture",
       target: "offscreen",
@@ -150,16 +135,13 @@ async function startCapture(tabId) {
       audioChunkSize: CONFIG.audioChunkSize,
     });
 
-    // Conecta o WebSocket
     connectWebSocket();
 
-    // Injeta o content script
     chrome.scripting.executeScript({
       target: { tabId: tabId },
       files: ["content.js"],
     });
 
-    // Atualiza o status
     updateStatus("capturing");
     console.log("Comando para iniciar a captura enviado.");
   } catch (error) {
@@ -174,13 +156,11 @@ async function startCapture(tabId) {
 async function stopCapture() {
   if (!isCapturing) return;
 
-  // Envia mensagem para o offscreen document parar de gravar
   chrome.runtime.sendMessage({
     type: "stop-capture",
     target: "offscreen",
   });
 
-  // Fecha o documento offscreen para liberar recursos
   await closeOffscreenDocument();
 
   if (websocket) {
@@ -194,9 +174,6 @@ async function stopCapture() {
   console.log("Comando para parar a captura enviado.");
 }
 
-// =================================================================
-// STATUS & EVENT LISTENERS
-// =================================================================
 function updateStatus(status) {
   chrome.storage.local.set({
     captureStatus: status,
@@ -206,7 +183,6 @@ function updateStatus(status) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Tratamento assíncrono para casos que retornam Promises
   (async () => {
     console.log("background received a message", request);
 
@@ -254,7 +230,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         break;
 
-      // NOVO: Trata erros vindos do offscreen.js
       case "capture_error":
         console.error(
           "Erro de captura recebido do offscreen:",
@@ -268,7 +243,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true; // Mantém a porta de mensagem aberta para respostas assíncronas
 });
 
-// Limpeza quando uma aba é fechada
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === currentTabId) {
     stopCapture();
