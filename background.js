@@ -53,7 +53,7 @@ function connectWebSocket() {
     websocket.onmessage = (event) => {
       console.log("event received", event);
       const data = JSON.parse(event.data);
-      if (data.type === "translation" && currentTabId) {
+      if (data.type === "transcription" && currentTabId) {
         chrome.tabs.sendMessage(currentTabId, {
           type: "new_translation",
           text: data.text,
