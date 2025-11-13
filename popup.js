@@ -38,6 +38,7 @@ async function startOrStopCapture(isListening) {
   });
 }
 
+// Update toggle button click handler
 toggleButton.addEventListener("click", async () => {
   const buttonName = toggleButton.innerText.toLowerCase();
   const isListening = !buttonName.includes("start");

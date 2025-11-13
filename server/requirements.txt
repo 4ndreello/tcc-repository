@@ -1,0 +1,17 @@
+# Dependências principais
+websockets>=11.0.0
+openai-whisper>=20231117
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Processamento de áudio
+numpy>=1.24.0
+
+# Tradução
+googletrans==4.0.0rc1
+
+# Utilitários para Python 3.13
+# pathlib2>=2.3.0  # Não necessário no Python 3.13
+
+# Opcional: para melhor performance com GPU
+# torch-audio  # descomente se usar GPU

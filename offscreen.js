@@ -1,3 +1,5 @@
+// offscreen.js
+
 let mediaRecorder;
 let audioChunks = [];
 
@@ -39,17 +41,25 @@ async function startCapture(streamId, audioChunkSize) {
       video: false,
     });
 
+    // 🔊 REPRODUZ O ÁUDIO CAPTURADO PARA O USUÁRIO
+    const audioElement = new Audio();
+    audioElement.srcObject = stream;
+    audioElement.autoplay = true;
+    audioElement.muted = false; // garante que o som seja ouvido
+    audioElement.volume = 1.0;
+    document.body.appendChild(audioElement); // opcional (pra manter referência)
+
+    // 🎙️ CONTINUA O MEDIARECORDER COMO JÁ ESTAVA
     mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
     audioChunks = [];
 
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
-        // Converte o chunk de áudio para base64 e envia para o background script
         const reader = new FileReader();
         reader.onloadend = () => {
           chrome.runtime.sendMessage({
             type: "audio_chunk_from_offscreen",
-            audio: reader.result, // O resultado já é uma string base64
+            audio: reader.result,
           });
         };
         reader.readAsDataURL(event.data);
@@ -57,7 +67,6 @@ async function startCapture(streamId, audioChunkSize) {
     };
 
     mediaRecorder.onstop = () => {
-      // Limpa os tracks da stream para liberar recursos
       stream.getTracks().forEach((track) => track.stop());
       console.log("Gravação e stream parados no offscreen.");
     };
@@ -65,7 +74,6 @@ async function startCapture(streamId, audioChunkSize) {
     mediaRecorder.start(audioChunkSize);
   } catch (error) {
     console.error("Erro ao iniciar a captura no offscreen:", error);
-    // Informa o background script sobre o erro
     chrome.runtime.sendMessage({
       type: "capture_error",
       message: error.message,
