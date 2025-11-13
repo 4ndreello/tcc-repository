@@ -3,7 +3,7 @@ let isCapturing = false;
 let currentTabId = null;
 
 const CONFIG = {
-  wsUrl: "ws://localhost:8080/translate",
+  wsUrl: "ws://localhost:8080",
   reconnectDelay: 3000,
   audioChunkSize: 8_000, // ms
 };
