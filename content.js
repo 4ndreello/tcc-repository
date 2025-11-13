@@ -1,8 +1,7 @@
 // Check if overlay already exists
 if (!document.getElementById("translation-overlay")) {
   // State
-  let translations = [];
-  const MAX_TRANSLATIONS = 5;
+  // REMOVIDO: Não precisamos mais de 'translations = []' ou 'MAX_TRANSLATIONS'
 
   // Create overlay container
   const overlay = document.createElement("div");
@@ -19,8 +18,7 @@ if (!document.getElementById("translation-overlay")) {
       </div>
     </div>
     <div class="overlay-content">
-      <div class="translations-container"></div>
-      <div class="no-translations">Waiting for audio...</div>
+      <div class="continuous-transcript waiting">Waiting for audio...</div>
     </div>
   `;
 
@@ -36,6 +34,7 @@ if (!document.getElementById("translation-overlay")) {
   let yOffset = 0;
 
   const header = overlay.querySelector(".overlay-header");
+  const content = overlay.querySelector(".overlay-content"); // MODIFICADO: Pegamos a referência do 'content'
 
   header.addEventListener("mousedown", dragStart);
   document.addEventListener("mousemove", drag);
@@ -74,7 +73,7 @@ if (!document.getElementById("translation-overlay")) {
   // Controls
   const minimizeBtn = overlay.querySelector(".minimize-btn");
   const closeBtn = overlay.querySelector(".close-btn");
-  const content = overlay.querySelector(".overlay-content");
+  // const content = overlay.querySelector(".overlay-content"); // Já pego lá em cima
 
   let isMinimized = false;
 
@@ -96,38 +95,20 @@ if (!document.getElementById("translation-overlay")) {
     chrome.runtime.sendMessage({ type: "stop_capture" });
   });
 
-  // Add translation to overlay
+  // ===================================================================
+  // FUNÇÃO 'addTranslation' COMPLETAMENTE MODIFICADA
+  // ===================================================================
   function addTranslation(data) {
     console.log("add translation", data);
-    const container = overlay.querySelector(".translations-container");
-    const noTranslations = overlay.querySelector(".no-translations");
+    const transcriptEl = overlay.querySelector(".continuous-transcript");
 
-    noTranslations.style.display = "none";
+    if (data.translatedText) {
+      // Apenas atualiza o texto do elemento
+      transcriptEl.textContent = data.translatedText;
+      transcriptEl.classList.remove("waiting"); // Remove o estilo de "esperando"
 
-    // Create translation element
-    const translationEl = document.createElement("div");
-    translationEl.className = "translation-item";
-    translationEl.innerHTML = `
-      <div class="original-text">${data.text}</div>
-      <div class="translated-text">${data.translatedText}</div>
-      <div class="translation-time">${new Date(
-        data.timestamp
-      ).toLocaleTimeString()}</div>
-    `;
-
-    // Add to beginning
-    container.insertBefore(translationEl, container.firstChild);
-
-    // Animate in
-    setTimeout(() => translationEl.classList.add("show"), 10);
-
-    // Remove old translations
-    translations.unshift(data);
-    if (translations.length > MAX_TRANSLATIONS) {
-      const removed = container.lastElementChild;
-      removed.classList.add("fade-out");
-      setTimeout(() => removed.remove(), 300);
-      translations.pop();
+      // MODIFICADO: Faz o scroll acompanhar o texto
+      content.scrollTop = content.scrollHeight;
     }
 
     // Flash status dot
@@ -135,6 +116,7 @@ if (!document.getElementById("translation-overlay")) {
     statusDot.classList.add("flash");
     setTimeout(() => statusDot.classList.remove("flash"), 500);
   }
+  // ===================================================================
 
   // Listen for messages from background
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

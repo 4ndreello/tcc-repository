@@ -11,6 +11,9 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   transition: all 0.3s ease;
   overflow: hidden;
+  /* MODIFICADO: Adicionado para o layout funcionar melhor */
+  display: flex;
+  flex-direction: column;
 }
 
 #translation-overlay.minimized {
@@ -26,6 +29,8 @@
   cursor: move;
   user-select: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  /* MODIFICADO: Impede que o header encolha */
+  flex-shrink: 0;
 }
 
 .overlay-title {
@@ -83,6 +88,8 @@
   padding: 15px;
   max-height: 400px;
   overflow-y: auto;
+  /* MODIFICADO: Permite que o conteúdo cresça e preencha o espaço */
+  flex-grow: 1;
 }
 
 .overlay-content::-webkit-scrollbar {
@@ -99,61 +106,32 @@
   border-radius: 3px;
 }
 
-.translations-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+/* =================================================================== */
+/* ESTILOS ANTIGOS REMOVIDOS E NOVOS ADICIONADOS */
+/* =================================================================== */
 
-.translation-item {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 12px;
-  opacity: 0;
-  transform: translateY(10px);
-  transition: all 0.3s ease;
-}
+/* REMOVIDO: .translations-container, .translation-item e suas variantes */
 
-.translation-item.show {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.translation-item.fade-out {
-  opacity: 0;
-  transform: translateX(20px);
-}
-
-.original-text {
-  color: #94a3b8;
-  font-size: 13px;
-  margin-bottom: 6px;
-  line-height: 1.4;
-}
-
-.translated-text {
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.5;
-  margin-bottom: 6px;
-}
-
-.translation-time {
-  color: #64748b;
-  font-size: 11px;
-  text-align: right;
-  margin-top: 8px;
-}
-
-.no-translations {
+/* MODIFICADO: .no-translations virou o estado '.waiting' do novo elemento */
+.continuous-transcript.waiting {
   color: #64748b;
   text-align: center;
   padding: 40px 20px;
   font-size: 14px;
   opacity: 0.7;
 }
+
+/* ADICIONADO: Estilo para o nosso texto contínuo */
+.continuous-transcript {
+  color: #fff;
+  font-size: 15px; /* Um pouco maior para leitura */
+  font-weight: 500;
+  line-height: 1.6; /* Mais espaçamento entre linhas */
+  white-space: pre-wrap; /* Respeita quebras de linha e faz o wrap */
+  word-break: break-word; /* Quebra palavras longas se necessário */
+  transition: color 0.3s ease;
+}
+
 
 /* Animations */
 @keyframes pulse {
@@ -168,6 +146,7 @@
   }
 }
 
-.no-translations {
+/* MODIFICADO: Animação agora se aplica ao estado 'waiting' */
+.continuous-transcript.waiting {
   animation: pulse 2s infinite;
 }

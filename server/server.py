@@ -18,6 +18,11 @@ import torch
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# CONSTANTES
+SAMPLE_RATE = 16000 # Taxa de amostragem do Whisper
+MAX_BUFFER_SECONDS = 20 # Manter um "histórico" de 20 segundos (a "janela")
+OVERLAP_SECONDS = 3   # Manter 3s de áudio anterior para dar contexto
+
 class AudioProcessor:
     def __init__(self, model_size: str = "base", ffmpeg_path: str = None):
         self.model_size = model_size
@@ -34,28 +39,21 @@ class AudioProcessor:
         self.is_initialized = True
         logger.info(f"models loaded! whisper: {self.model_size}, device: {self.device}")
 
-    async def process_chunk(self, audio_bytes: bytes) -> Optional[Dict[str, Any]]:
+    async def decode_chunk(self, audio_bytes: bytes) -> Optional[np.ndarray]:
         input_path = None
         try:
-            #still need the temporary input file for ffmpeg
             with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
                 temp_file.write(audio_bytes)
                 input_path = temp_file.name
             
-            # modified ffmpeg command:
-            # -f s16le: format output as 16-bit signed little-endian pcm
-            # -: send output to stdout, not a file
             cmd = [
                 self.ffmpeg_path, '-y', '-i', input_path,
-                '-ar', '16000',     # resample to 16khz
-                '-ac', '1',          # mono channel
-                '-f', 's16le',       # output format (raw pcm)
-                '-'                  # output to stdout
+                '-ar', str(SAMPLE_RATE),
+                '-ac', '1',
+                '-f', 's16le',
+                '-'
             ]
 
-            logger.info(f"processing chunk of {len(audio_bytes)} bytes in-memory...")
-            
-            # 3. run process and capture stdout/stderr
             proc = await asyncio.create_subprocess_exec(
                 *cmd, 
                 stdout=asyncio.subprocess.PIPE, 
@@ -67,50 +65,52 @@ class AudioProcessor:
                 logger.error(f"ffmpeg failed: {stderr.decode('utf-8', errors='ignore')[:500]}")
                 return None
             
-            # 'stdout' now contains the raw pcm audio bytes
-            logger.info(f"ffmpeg ok. received {len(stdout)} bytes of raw pcm data.")
-            
             if not stdout:
                 logger.warning("ffmpeg produced no output.")
                 return None
 
-            # convert raw bytes to numpy float32 array
-            # whisper expects audio normalized between -1.0 and 1.0
             audio_np = np.frombuffer(stdout, dtype=np.int16).astype(np.float32) / 32768.0
-            
-            # feed numpy array directly to whisper
+            return audio_np
+
+        except Exception as e:
+            logger.error(f"error during decoding: {e}")
+            return None
+        finally:
+            if input_path and os.path.exists(input_path): 
+                os.unlink(input_path)
+
+    async def transcribe_buffer(self, audio_buffer: np.ndarray) -> Optional[Dict[str, Any]]:
+        try:
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, lambda: self.whisper_model.transcribe(audio_np, fp16=False))
+            result = await loop.run_in_executor(None, lambda: self.whisper_model.transcribe(audio_buffer, fp16=False))
             original_text = result.get("text", "").strip()
 
             if not original_text:
-                logger.info("no text transcribed.")
                 return None
             
-            logger.info(f"transcribed: '{original_text}'")
-            
-            # return original text in both fields
             return {"text": original_text, "translatedText": original_text}
-
+        
         except Exception as e:
-            logger.error(f"error during processing: {e}")
+            logger.error(f"error during transcription: {e}")
             return None
-        finally:
-            # 7. clean up only the temporary input file
-            if input_path and os.path.exists(input_path): 
-                os.unlink(input_path)
+
 
 processor = AudioProcessor(model_size="base")
 
 async def handler(websocket):
-    """manages the connection and maintains state (the header) for each client."""
     logger.info(f"client connected: {websocket.remote_address}")
     if not processor.is_initialized:
         await processor.initialize_models()
     
-    # --- connection state logic ---
-    header_bytes = None # each connection has its own header "memory"
-    # --- end of state logic ---
+    # --- Lógica de Estado (Buffer) ---
+    max_samples = SAMPLE_RATE * MAX_BUFFER_SECONDS
+    overlap_samples = SAMPLE_RATE * OVERLAP_SECONDS # Amostras de sobreposição
+    
+    # *** MODIFICAÇÃO AQUI ***
+    audio_buffer = np.array([], dtype=np.float32)     # A "janela" de áudio de 20s
+    final_transcript = ""                             # O seu "texto salvo localmente"
+    last_sent_text = ""                               # Para evitar repetições
+    # *** FIM DA MODIFICAÇÃO ***
 
     try:
         async for message in websocket:
@@ -126,34 +126,63 @@ async def handler(websocket):
                 
                 audio_bytes = base64.b64decode(base64_audio)
                 
-                # --- audio assembly logic ---
-                bytes_to_process = None
-                if header_bytes is None:
-                    # this is the first chunk, it contains the header.
-                    logger.info("first chunk (with header) received. saving and processing...")
-                    header_bytes = audio_bytes
-                    bytes_to_process = audio_bytes
-                else:
-                    # this is a subsequent chunk. joining with the saved header.
-                    logger.info("subsequent data chunk received. combining with header...")
-                    bytes_to_process = header_bytes + audio_bytes
-                # --- end of assembly logic ---
-
-                # --- start timing ---
                 start_time = time.perf_counter()
                 
-                result = await processor.process_chunk(bytes_to_process)
+                decoded_np = await processor.decode_chunk(audio_bytes)
+                if decoded_np is None:
+                    logger.warning("skipping chunk, decoding failed.")
+                    continue
+
+                # 1. Adiciona o novo áudio ao buffer da janela atual
+                audio_buffer = np.concatenate([audio_buffer, decoded_np])
                 
-                # --- end timing ---
+                current_window_text = "" # Texto "temporário" da janela atual
+
+                # *** MODIFICAÇÃO AQUI ***
+                # 2. A janela está cheia? (20s)
+                if len(audio_buffer) >= max_samples:
+                    logger.info(f"--- JANELA DE {MAX_BUFFER_SECONDS}s CHEIA ---")
+                    
+                    # 3. Transcreve a janela *inteira* para "finalizar"
+                    result = await processor.transcribe_buffer(audio_buffer)
+                    text_to_finalize = result.get("text", "") if result else ""
+                    
+                    # 4. Salva o texto
+                    final_transcript += text_to_finalize + " "
+                    logger.info(f"Texto finalizado: {text_to_finalize}")
+
+                    # 5. Limpa o buffer, mas mantém a sobreposição (os últimos 3s)
+                    audio_buffer = audio_buffer[max_samples - overlap_samples:]
+                
+                else:
+                    # A janela ainda está enchendo (0-19s)
+                    # Transcreve o buffer atual para dar um "preview"
+                    result = await processor.transcribe_buffer(audio_buffer)
+                    current_window_text = result.get("text", "") if result else ""
+                # *** FIM DA MODIFICAÇÃO ***
+
+
                 end_time = time.perf_counter()
                 processing_ms = (end_time - start_time) * 1000
                 
-                if result:
-                    response = {"type": "transcription", **result, "timestamp": int(time.time() * 1000)}
+                # 6. Envia o texto completo (Salvo + Preview da janela atual)
+                full_text_to_send = final_transcript + current_window_text
+
+                if full_text_to_send and full_text_to_send != last_sent_text:
+                    last_sent_text = full_text_to_send
+                    
+                    response = {
+                        "type": "transcription", 
+                        "text": full_text_to_send, 
+                        "translatedText": full_text_to_send, # Mudar aqui se tiver tradução real
+                        "timestamp": int(time.time() * 1000)
+                    }
                     await websocket.send(json.dumps(response))
                     
-                    # log with timing
-                    logger.info(f"transcription sent to extension. (processing time: {processing_ms:.2f} ms)")
+                    logger.info(f"transcription SENT: '{full_text_to_send}' (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms)")
+                
+                elif full_text_to_send:
+                    logger.info(f"transcription SKIPPED (redundant). (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms)")
                     
     except websockets.ConnectionClosed:
         logger.info(f"client disconnected: {websocket.remote_address}")
@@ -166,6 +195,7 @@ async def main():
     logger.info("=============================================")
     logger.info("in-memory audio processing server started")
     logger.info(f"address: ws://{host}:{port}")
+    logger.info(f"buffer size: {MAX_BUFFER_SECONDS}s window, {OVERLAP_SECONDS}s overlap")
     logger.info("=============================================")
     async with websockets.serve(handler, host, port):
         await asyncio.Future()

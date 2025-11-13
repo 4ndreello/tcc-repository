@@ -5,7 +5,7 @@ let currentTabId = null;
 const CONFIG = {
   wsUrl: "ws://localhost:8080",
   reconnectDelay: 3000,
-  audioChunkSize: 8_000, // ms
+  audioChunkSize: 1000, 
 };
 
 // =================================================================
