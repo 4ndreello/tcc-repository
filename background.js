@@ -70,39 +70,7 @@ function connectWebSocket() {
   } catch (error) {
     console.error("Failed to connect WebSocket:", error);
     updateStatus("error");
-    mockWebSocket();
   }
-}
-
-function mockWebSocket() {
-  console.log("Running in mock mode");
-  const mockPhrases = [
-    { text: "Hello, how are you?", translatedText: "Olá, como você está?" },
-    {
-      text: "Welcome to the presentation",
-      translatedText: "Bem-vindo à apresentação",
-    },
-    { text: "Let's get started", translatedText: "Vamos começar" },
-    { text: "This is an example", translatedText: "Este é um exemplo" },
-    { text: "Thank you for watching", translatedText: "Obrigado por assistir" },
-  ];
-
-  let mockIndex = 0;
-  const mockInterval = setInterval(() => {
-    if (!isCapturing) {
-      clearInterval(mockInterval);
-      return;
-    }
-    if (currentTabId) {
-      chrome.tabs.sendMessage(currentTabId, {
-        type: "new_translation",
-        ...mockPhrases[mockIndex % mockPhrases.length],
-        timestamp: Date.now(),
-      });
-      mockIndex++;
-    }
-  }, 3000);
-  updateStatus("mock_mode");
 }
 
 async function startCapture(tabId) {

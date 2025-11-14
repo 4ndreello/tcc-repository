@@ -18,7 +18,6 @@ import torch
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# CONSTANTES
 SAMPLE_RATE = 16000 # Taxa de amostragem do Whisper
 MAX_BUFFER_SECONDS = 20 # Manter um "histórico" de 20 segundos (a "janela")
 OVERLAP_SECONDS = 3   # Manter 3s de áudio anterior para dar contexto
@@ -106,11 +105,9 @@ async def handler(websocket):
     max_samples = SAMPLE_RATE * MAX_BUFFER_SECONDS
     overlap_samples = SAMPLE_RATE * OVERLAP_SECONDS # Amostras de sobreposição
     
-    # *** MODIFICAÇÃO AQUI ***
     audio_buffer = np.array([], dtype=np.float32)     # A "janela" de áudio de 20s
     final_transcript = ""                             # O seu "texto salvo localmente"
     last_sent_text = ""                               # Para evitar repetições
-    # *** FIM DA MODIFICAÇÃO ***
 
     try:
         async for message in websocket:
@@ -138,7 +135,6 @@ async def handler(websocket):
                 
                 current_window_text = "" # Texto "temporário" da janela atual
 
-                # *** MODIFICAÇÃO AQUI ***
                 # 2. A janela está cheia? (20s)
                 if len(audio_buffer) >= max_samples:
                     logger.info(f"--- JANELA DE {MAX_BUFFER_SECONDS}s CHEIA ---")
