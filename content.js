@@ -1,9 +1,4 @@
-// Check if overlay already exists
 if (!document.getElementById("translation-overlay")) {
-  // State
-  // REMOVIDO: Não precisamos mais de 'translations = []' ou 'MAX_TRANSLATIONS'
-
-  // Create overlay container
   const overlay = document.createElement("div");
   overlay.id = "translation-overlay";
   overlay.innerHTML = `
@@ -24,7 +19,6 @@ if (!document.getElementById("translation-overlay")) {
 
   document.body.appendChild(overlay);
 
-  // Make overlay draggable
   let isDragging = false;
   let currentX;
   let currentY;
@@ -34,7 +28,7 @@ if (!document.getElementById("translation-overlay")) {
   let yOffset = 0;
 
   const header = overlay.querySelector(".overlay-header");
-  const content = overlay.querySelector(".overlay-content"); // MODIFICADO: Pegamos a referência do 'content'
+  const content = overlay.querySelector(".overlay-content");
 
   header.addEventListener("mousedown", dragStart);
   document.addEventListener("mousemove", drag);
@@ -70,10 +64,8 @@ if (!document.getElementById("translation-overlay")) {
     overlay.style.transition = "";
   }
 
-  // Controls
   const minimizeBtn = overlay.querySelector(".minimize-btn");
   const closeBtn = overlay.querySelector(".close-btn");
-  // const content = overlay.querySelector(".overlay-content"); // Já pego lá em cima
 
   let isMinimized = false;
 
@@ -95,34 +87,33 @@ if (!document.getElementById("translation-overlay")) {
     chrome.runtime.sendMessage({ type: "stop_capture" });
   });
 
-  // ===================================================================
-  // FUNÇÃO 'addTranslation' COMPLETAMENTE MODIFICADA
-  // ===================================================================
   function addTranslation(data) {
     console.log("add translation", data);
     const transcriptEl = overlay.querySelector(".continuous-transcript");
 
     if (data.translatedText) {
-      // Apenas atualiza o texto do elemento
       transcriptEl.textContent = data.translatedText;
-      transcriptEl.classList.remove("waiting"); // Remove o estilo de "esperando"
+      transcriptEl.classList.remove("waiting");
 
-      // MODIFICADO: Faz o scroll acompanhar o texto
       content.scrollTop = content.scrollHeight;
     }
 
-    // Flash status dot
     const statusDot = overlay.querySelector(".status-dot");
     statusDot.classList.add("flash");
     setTimeout(() => statusDot.classList.remove("flash"), 500);
   }
-  // ===================================================================
 
-  // Listen for messages from background
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("received in content", request);
     if (request.type === "new_translation") {
       addTranslation(request);
+    } else if (request.type === "remove_overlay") {
+      const overlay = document.getElementById("translation-overlay");
+      if (overlay) {
+        overlay.remove();
+      }
+      sendResponse({ success: true });
+      return true;
     }
   });
 }

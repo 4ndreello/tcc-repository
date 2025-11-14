@@ -5,15 +5,11 @@ let currentTabId = null;
 const CONFIG = {
   wsUrl: "ws://localhost:8080",
   reconnectDelay: 3000,
-  audioChunkSize: 1000, 
+  audioChunkSize: 1000,
 };
 
-// =================================================================
-// OFFSCREEN DOCUMENT MANAGEMENT
-// =================================================================
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
-// Cria o documento offscreen se ele não existir
 async function setupOffscreenDocument() {
   const existingContexts = await chrome.runtime.getContexts({
     contextTypes: ["OFFSCREEN_DOCUMENT"],
@@ -27,18 +23,14 @@ async function setupOffscreenDocument() {
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_DOCUMENT_PATH,
     reasons: ["USER_MEDIA"],
-    justification: "Necessário para capturar o áudio da aba.",
+    justification: "Necessary to capture tab audio.",
   });
 }
 
-// Fecha o documento offscreen
 async function closeOffscreenDocument() {
-  await chrome.offscreen.closeDocument().catch(() => { });
+  await chrome.offscreen.closeDocument().catch(() => {});
 }
 
-// =================================================================
-// WEBSOCKET LOGIC (Sem alterações)
-// =================================================================
 function connectWebSocket() {
   if (websocket?.readyState === WebSocket.OPEN) return;
 
@@ -113,12 +105,9 @@ function mockWebSocket() {
   updateStatus("mock_mode");
 }
 
-// =================================================================
-// CAPTURE LOGIC (Alterado para usar Offscreen)
-// =================================================================
 async function startCapture(tabId) {
   if (isCapturing) {
-    console.warn("A captura já está em andamento.");
+    console.warn("Capture is already in progress.");
     return;
   }
 
@@ -126,15 +115,12 @@ async function startCapture(tabId) {
     isCapturing = true;
     currentTabId = tabId;
 
-    // 1. Garante que o documento offscreen está pronto
     await setupOffscreenDocument();
 
-    // 2. Obtém o ID do stream da aba
     const streamId = await chrome.tabCapture.getMediaStreamId({
       targetTabId: tabId,
     });
 
-    // 3. Envia o ID para o offscreen document para iniciar a captura
     chrome.runtime.sendMessage({
       type: "start-capture",
       target: "offscreen",
@@ -142,20 +128,17 @@ async function startCapture(tabId) {
       audioChunkSize: CONFIG.audioChunkSize,
     });
 
-    // Conecta o WebSocket
     connectWebSocket();
 
-    // Injeta o content script
     chrome.scripting.executeScript({
       target: { tabId: tabId },
       files: ["content.js"],
     });
 
-    // Atualiza o status
     updateStatus("capturing");
-    console.log("Comando para iniciar a captura enviado.");
+    console.log("Start capture command sent.");
   } catch (error) {
-    console.error("Falha ao iniciar a captura:", error);
+    console.error("Failed to start capture:", error);
     updateStatus("error");
     isCapturing = false;
     currentTabId = null;
@@ -166,13 +149,11 @@ async function startCapture(tabId) {
 async function stopCapture() {
   if (!isCapturing) return;
 
-  // Envia mensagem para o offscreen document parar de gravar
   chrome.runtime.sendMessage({
     type: "stop-capture",
     target: "offscreen",
   });
 
-  // Fecha o documento offscreen para liberar recursos
   await closeOffscreenDocument();
 
   if (websocket) {
@@ -183,12 +164,9 @@ async function stopCapture() {
   isCapturing = false;
   currentTabId = null;
   updateStatus("idle");
-  console.log("Comando para parar a captura enviado.");
+  console.log("Stop capture command sent.");
 }
 
-// =================================================================
-// STATUS & EVENT LISTENERS
-// =================================================================
 function updateStatus(status) {
   chrome.storage.local.set({
     captureStatus: status,
@@ -197,31 +175,48 @@ function updateStatus(status) {
   });
 }
 
+async function checkPermissionsOnTab(tab) {
+  try {
+    if (
+      tab.url.startsWith("chrome://") ||
+      tab.url.startsWith("chrome-extension://") ||
+      tab.url.startsWith("edge://")
+    ) {
+      console.warn("Cannot capture audio from browser system pages.");
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("Permission check failed:", error);
+    return false;
+  }
+}
+
+chrome.action.onClicked.addListener(async (tab) => {
+  const { isCapturing } = await chrome.storage.local.get("isCapturing");
+
+  if (isCapturing) {
+    console.log("Action icon clicked: Stopping capture...");
+    await stopCapture();
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "remove_overlay" });
+    } catch (e) {
+      console.warn("Could not send remove_overlay message. Was the tab closed?");
+    }
+  } else {
+    console.log("Action icon clicked: Starting capture...");
+    const hasPermission = await checkPermissionsOnTab(tab);
+    if (hasPermission) {
+      await startCapture(tab.id);
+    }
+  }
+});
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Tratamento assíncrono para casos que retornam Promises
   (async () => {
     console.log("background received a message", request);
 
     switch (request.type) {
-      case "start_capture":
-        try {
-          const tabs = await chrome.tabs.query({
-            active: true,
-            currentWindow: true,
-          });
-
-          console.log("tabs", tabs);
-
-          if (tabs[0]) {
-            await startCapture(tabs[0].id);
-            sendResponse({ success: true });
-          } else {
-            throw new Error("Nenhuma aba ativa encontrada.");
-          }
-        } catch (error) {
-          sendResponse({ success: false, error: error.message });
-        }
-        break;
       case "stop_capture":
         await stopCapture();
         sendResponse({ success: true });
@@ -239,9 +234,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           websocket.send(
             JSON.stringify({
               type: "audio_chunk",
-              audio: request.audio, // base64 encoded
-              // --- ADIÇÃO AQUI ---
-              // Enviamos a duração do chunk que foi configurada
+              audio: request.audio,
               duration: CONFIG.audioChunkSize,
               timestamp: Date.now(),
             })
@@ -249,10 +242,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         break;
       case "capture_error":
-        console.error(
-          "Erro de captura recebido do offscreen:",
-          request.message
-        );
+        console.error("Capture error received from offscreen:", request.message);
         await stopCapture();
         break;
     }
@@ -261,7 +251,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
-// Limpeza quando uma aba é fechada
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === currentTabId) {
     stopCapture();
