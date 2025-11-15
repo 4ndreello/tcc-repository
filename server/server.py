@@ -15,8 +15,45 @@ import whisper
 import numpy as np
 import torch
 
+# --- NOVAS IMPORTAÇÕES ---
+import logging.handlers
+import datetime
+# --- FIM DAS NOVAS IMPORTAÇÕES ---
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# --- INÍCIO DA MODIFICAÇÃO: CONFIGURAÇÃO DO LOGGER DE DADOS ---
+# Define o nome do arquivo de log de performance
+DATA_LOG_FILE = "server_performance.txt"
+
+# Cria um logger separado para os dados de performance
+data_logger = logging.getLogger('performance')
+data_logger.setLevel(logging.INFO)
+data_logger.propagate = False  # Impede que os logs de dados apareçam no console
+
+# Configura o handler do arquivo (RotatingFileHandler para evitar arquivos gigantes)
+# 5MB por arquivo, mantém 2 arquivos de backup
+file_handler = logging.handlers.RotatingFileHandler(
+    DATA_LOG_FILE, maxBytes=5*1024*1024, backupCount=2
+)
+
+# Define um formato simples: apenas a mensagem, pois vamos formatá-la manualmente
+file_handler.setFormatter(logging.Formatter('%(message)s'))
+data_logger.addHandler(file_handler)
+
+# Escreve o cabeçalho no arquivo .txt se ele for novo ou estiver vazio
+# Este formato é TSV (Tab-Separated Values), fácil de importar no Excel
+if not os.path.exists(DATA_LOG_FILE) or os.path.getsize(DATA_LOG_FILE) == 0:
+    data_logger.info(
+        "timestamp_iso\t"
+        "processing_latency_ms\t"
+        "decoded_audio_duration_s\t"
+        "throughput_x_realtime\t"
+        "device"
+    )
+# --- FIM DA MODIFICAÇÃO ---
+
 
 SAMPLE_RATE = 16000 # Taxa de amostragem do Whisper
 MAX_BUFFER_SECONDS = 20 # Manter um "histórico" de 20 segundos (a "janela")
@@ -161,6 +198,34 @@ async def handler(websocket):
                 end_time = time.perf_counter()
                 processing_ms = (end_time - start_time) * 1000
                 
+                # --- INÍCIO DA MODIFICAÇÃO: LOG DE PERFORMANCE ---
+                decoded_duration_s = 0.0
+                throughput_x_rt = 0.0
+                
+                # Calcula a duração real do áudio decodificado
+                if decoded_np is not None:
+                    decoded_duration_s = len(decoded_np) / SAMPLE_RATE
+                
+                processing_duration_s = processing_ms / 1000.0
+
+                if processing_duration_s > 0:
+                    # Calcula o "throughput" como "X vezes o tempo real"
+                    # Ex: Se processou 1s de áudio em 0.5s, o throughput é 2.0x
+                    throughput_x_rt = decoded_duration_s / processing_duration_s
+
+                # Obtém o timestamp atual em formato ISO
+                log_timestamp = datetime.datetime.utcnow().isoformat()
+                
+                # Loga os dados no arquivo 'server_performance.txt'
+                data_logger.info(
+                    f"{log_timestamp}\t"
+                    f"{processing_ms:.4f}\t"
+                    f"{decoded_duration_s:.4f}\t"
+                    f"{throughput_x_rt:.4f}\t"
+                    f"{processor.device}"
+                )
+                # --- FIM DA MODIFICAÇÃO ---
+
                 # 6. Envia o texto completo (Salvo + Preview da janela atual)
                 full_text_to_send = final_transcript + current_window_text
 
@@ -192,6 +257,9 @@ async def main():
     logger.info("in-memory audio processing server started")
     logger.info(f"address: ws://{host}:{port}")
     logger.info(f"buffer size: {MAX_BUFFER_SECONDS}s window, {OVERLAP_SECONDS}s overlap")
+    # --- MODIFICAÇÃO: Loga o local do arquivo de dados ---
+    logger.info(f"performance data will be logged to: {DATA_LOG_FILE}")
+    # --- FIM DA MODIFICAÇÃO ---
     logger.info("=============================================")
     async with websockets.serve(handler, host, port):
         await asyncio.Future()

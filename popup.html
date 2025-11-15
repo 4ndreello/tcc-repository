@@ -157,6 +157,101 @@
         display: inline-block;
         margin-right: 4px;
       }
+
+      .debug-section {
+        margin-top: 20px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        padding-top: 15px;
+      }
+
+      .debug-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        color: #94a3b8;
+        user-select: none;
+        transition: background 0.2s ease;
+      }
+
+      .debug-header:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .debug-toggle-icon {
+        transition: transform 0.2s ease;
+        font-size: 10px;
+      }
+
+      .debug-header.expanded .debug-toggle-icon {
+        transform: rotate(180deg);
+      }
+
+      .debug-content {
+        margin-top: 10px;
+        max-height: 400px;
+        overflow-y: auto;
+        font-size: 11px;
+      }
+
+      .debug-group {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .debug-group:last-child {
+        border-bottom: none;
+      }
+
+      .debug-label {
+        color: #64748b;
+        font-weight: 500;
+        flex: 1;
+      }
+
+      .debug-value {
+        color: #e2e8f0;
+        text-align: right;
+        flex: 1;
+        word-break: break-word;
+        max-width: 60%;
+      }
+
+      .debug-error {
+        color: #f87171;
+      }
+
+      .debug-transcription {
+        color: #60a5fa;
+        font-style: italic;
+        max-width: 100%;
+        text-align: left;
+        margin-top: 4px;
+      }
+
+      .debug-content::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      .debug-content::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 2px;
+      }
+
+      .debug-content::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+      }
+
+      .debug-content::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
     </style>
   </head>
   <body>
@@ -172,6 +267,59 @@
 
       <div style="display: flex; width: 100%; justify-content: center">
         <button class="main-button" id="toggleButton">Start Translation</button>
+      </div>
+
+      <div class="debug-section">
+        <div class="debug-header" id="debugToggle">
+          <span>🔍 Debug Info</span>
+          <span class="debug-toggle-icon">▼</span>
+        </div>
+        <div class="debug-content" id="debugContent" style="display: none;">
+          <div class="debug-group">
+            <div class="debug-label">WebSocket Status:</div>
+            <div class="debug-value" id="debugWsState">-</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Connection Time:</div>
+            <div class="debug-value" id="debugConnectionTime">-</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Audio Chunks Sent:</div>
+            <div class="debug-value" id="debugChunksSent">0</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Audio Bytes Sent:</div>
+            <div class="debug-value" id="debugBytesSent">0 B</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Transcriptions Received:</div>
+            <div class="debug-value" id="debugTranscriptions">0</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Avg Latency:</div>
+            <div class="debug-value" id="debugLatency">-</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Reconnect Attempts:</div>
+            <div class="debug-value" id="debugReconnects">0</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Offscreen Document:</div>
+            <div class="debug-value" id="debugOffscreen">-</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Capture Duration:</div>
+            <div class="debug-value" id="debugCaptureDuration">-</div>
+          </div>
+          <div class="debug-group" id="debugErrorGroup" style="display: none;">
+            <div class="debug-label">Last Error:</div>
+            <div class="debug-value debug-error" id="debugLastError">-</div>
+          </div>
+          <div class="debug-group">
+            <div class="debug-label">Last Transcription:</div>
+            <div class="debug-value debug-transcription" id="debugLastTranscription">-</div>
+          </div>
+        </div>
       </div>
     </div>
 

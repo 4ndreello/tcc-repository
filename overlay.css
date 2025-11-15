@@ -61,25 +61,51 @@
 .overlay-controls {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .overlay-controls button {
   background: rgba(255, 255, 255, 0.1);
   border: none;
   color: #fff;
-  width: 24px;
-  height: 24px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.overlay-controls button:hover {
+.start-stop-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  height: auto;
+  width: auto;
+  min-width: 70px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+}
+
+.start-stop-btn:hover {
+  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  transform: scale(1.05);
+}
+
+.start-stop-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.minimize-btn,
+.close-btn {
+  width: 24px;
+  height: 24px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.overlay-controls button:not(.start-stop-btn):hover {
   background: rgba(255, 255, 255, 0.2);
   transform: scale(1.1);
 }
