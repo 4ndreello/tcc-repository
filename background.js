@@ -22,17 +22,24 @@ const debugStats = {
   offscreenDocumentActive: false,
   captureStartTime: null,
   averageLatency: 0,
-  latencySamples: [],
+  latencySamples: [], // Últimas 50 amostras (para o gráfico)
+  allLatencySamples: [], // TODAS as amostras (para exportação)
   lastChunkTime: null,
   lastChunkTimestamp: null, // Timestamp do último chunk enviado
   currentTabId: null,
 };
 
 function addLatencySample(latencyMs) {
+  // Adicionar a TODAS as amostras (sem limite)
+  debugStats.allLatencySamples.push(latencyMs);
+
+  // Manter apenas as últimas 50 para o gráfico (performance)
   debugStats.latencySamples.push(latencyMs);
   if (debugStats.latencySamples.length > 50) {
     debugStats.latencySamples.shift();
   }
+
+  // Calcular média baseada nas últimas 50 (para exibição)
   const sum = debugStats.latencySamples.reduce((a, b) => a + b, 0);
   debugStats.averageLatency = sum / debugStats.latencySamples.length;
 }
@@ -156,7 +163,8 @@ async function startCapture(tabId) {
     debugStats.audioBytesSent = 0;
     debugStats.transcriptionsReceived = 0;
     debugStats.reconnectAttempts = 0;
-    debugStats.latencySamples = [];
+    debugStats.latencySamples = []; // Últimas 50 para o gráfico
+    debugStats.allLatencySamples = []; // TODAS as amostras da sessão (para exportação)
     debugStats.averageLatency = 0;
     debugStats.lastChunkTime = null;
     debugStats.currentTabId = tabId;
@@ -244,6 +252,7 @@ async function stopCapture() {
   debugStats.wsState = "disconnected";
   debugStats.currentTabId = null;
   debugStats.lastChunkTimestamp = null; // Resetar timestamp do chunk
+  // Não resetar allLatencySamples aqui - manter para exportação
   updateStatus("idle");
   console.log("Stop capture command sent.");
 }

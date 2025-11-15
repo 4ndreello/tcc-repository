@@ -257,7 +257,7 @@
   <body>
     <div class="container">
       <div class="header">
-        <h1>Live Audio Translator</h1>
+        <h1>Live Audio</h1>
       </div>
 
       <div class="status">
@@ -274,7 +274,7 @@
           <span>🔍 Debug Info</span>
           <span class="debug-toggle-icon">▼</span>
         </div>
-        <div class="debug-content" id="debugContent" style="display: none;">
+        <div class="debug-content" id="debugContent" style="display: none">
           <div class="debug-group">
             <div class="debug-label">WebSocket Status:</div>
             <div class="debug-value" id="debugWsState">-</div>
@@ -311,13 +311,18 @@
             <div class="debug-label">Capture Duration:</div>
             <div class="debug-value" id="debugCaptureDuration">-</div>
           </div>
-          <div class="debug-group" id="debugErrorGroup" style="display: none;">
+          <div class="debug-group" id="debugErrorGroup" style="display: none">
             <div class="debug-label">Last Error:</div>
             <div class="debug-value debug-error" id="debugLastError">-</div>
           </div>
           <div class="debug-group">
             <div class="debug-label">Last Transcription:</div>
-            <div class="debug-value debug-transcription" id="debugLastTranscription">-</div>
+            <div
+              class="debug-value debug-transcription"
+              id="debugLastTranscription"
+            >
+              -
+            </div>
           </div>
         </div>
       </div>

@@ -133,7 +133,7 @@ class AudioProcessor:
             return None
 
 
-processor = AudioProcessor(model_size="base")
+processor = AudioProcessor(model_size="tiny")
 
 async def handler(websocket):
     logger.info(f"client connected: {websocket.remote_address}")

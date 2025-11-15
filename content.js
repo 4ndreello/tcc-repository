@@ -5,7 +5,7 @@ if (!document.getElementById("translation-overlay")) {
     <div class="overlay-header">
       <span class="overlay-title">
         <span class="status-dot"></span>
-        Live Translation
+        Live
       </span>
       <div class="overlay-controls">
         <button class="debug-bug-btn" id="debugBugBtn" title="Debug Panel">

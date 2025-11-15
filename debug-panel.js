@@ -694,9 +694,9 @@ class DebugPanel {
 
       // Seção: Latency Statistics
       lines.push("=== LATENCY STATISTICS ===");
-      const validLatencySamples = s.latencySamples
-        ? s.latencySamples.filter((l) => l > 0 && l < 60000)
-        : [];
+      // Usar TODAS as amostras para exportação (não apenas as últimas 50)
+      const allSamples = s.allLatencySamples || s.latencySamples || [];
+      const validLatencySamples = allSamples.filter((l) => l > 0 && l < 60000);
 
       if (validLatencySamples.length > 0) {
         const avg =
@@ -704,9 +704,8 @@ class DebugPanel {
           validLatencySamples.length;
         const min = Math.min(...validLatencySamples);
         const max = Math.max(...validLatencySamples);
-        const median = validLatencySamples.sort((a, b) => a - b)[
-          Math.floor(validLatencySamples.length / 2)
-        ];
+        const sortedSamples = [...validLatencySamples].sort((a, b) => a - b);
+        const median = sortedSamples[Math.floor(sortedSamples.length / 2)];
 
         lines.push("Metric,Value");
         lines.push(
@@ -718,8 +717,8 @@ class DebugPanel {
         lines.push(`Median Latency (ms),${this.escapeCSV(median.toFixed(2))}`);
         lines.push("");
 
-        // Histórico de latências (uma linha por amostra)
-        lines.push("=== LATENCY HISTORY ===");
+        // Histórico de latências (uma linha por amostra) - TODAS as amostras
+        lines.push("=== LATENCY HISTORY (ALL SAMPLES) ===");
         lines.push("Sample Index,Latency (ms),Estimated Timestamp");
         validLatencySamples.forEach((latency, index) => {
           // Estimar timestamp baseado no tempo de captura e taxa de transcrições
