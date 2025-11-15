@@ -1,18 +1,14 @@
-// Elementos DOM
 const toggleButton = document.getElementById("toggleButton");
 const debugToggle = document.getElementById("debugToggle");
 const debugContent = document.getElementById("debugContent");
 
-// Sistema de debug
 let debugUpdateInterval = null;
 
-// add error handling for permissions
 async function checkPermissions() {
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = tabs[0];
 
-    // check if it's a restricted tab
     if (
       tab.url.startsWith("chrome://") ||
       tab.url.startsWith("chrome-extension://") ||
@@ -31,9 +27,6 @@ async function checkPermissions() {
   }
 }
 
-/**
- * @param {boolean} isListening
- */
 async function startOrStopCapture(isListening) {
   return new Promise(async (resolve) => {
     const hasPermission = await checkPermissions();
@@ -46,7 +39,6 @@ async function startOrStopCapture(isListening) {
   });
 }
 
-// Update toggle button click handler
 toggleButton.addEventListener("click", async () => {
   const buttonName = toggleButton.innerText.toLowerCase();
   const isListening = !buttonName.includes("start");
@@ -62,12 +54,10 @@ toggleButton.addEventListener("click", async () => {
   if (isListening) statusIndicator.classList.remove(statusClassName);
   else statusIndicator.classList.add("active");
 
-  // change toggleButton text
   toggleButton.innerText = isListening
     ? "Start Translation"
     : "Stop Translation";
   
-  // Iniciar/parar atualização de debug
   if (!isListening) {
     startDebugUpdates();
   } else {
@@ -75,7 +65,6 @@ toggleButton.addEventListener("click", async () => {
   }
 });
 
-// Funções de debug
 function formatBytes(bytes) {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -123,7 +112,6 @@ async function updateDebugInfo() {
 
     if (!response) return;
 
-    // WebSocket Status
     const wsStateMap = {
       disconnected: "Desconectado",
       connecting: "Conectando...",
@@ -132,7 +120,6 @@ async function updateDebugInfo() {
     };
     document.getElementById("debugWsState").textContent = wsStateMap[response.wsState] || response.wsState;
 
-    // Connection Time
     if (response.connectionStartTime) {
       const connectionDuration = Date.now() - response.connectionStartTime;
       document.getElementById("debugConnectionTime").textContent = formatDuration(connectionDuration);
@@ -140,29 +127,22 @@ async function updateDebugInfo() {
       document.getElementById("debugConnectionTime").textContent = "-";
     }
 
-    // Audio Chunks Sent
     document.getElementById("debugChunksSent").textContent = response.audioChunksSent || 0;
 
-    // Audio Bytes Sent
     document.getElementById("debugBytesSent").textContent = formatBytes(response.audioBytesSent || 0);
 
-    // Transcriptions Received
     document.getElementById("debugTranscriptions").textContent = response.transcriptionsReceived || 0;
 
-    // Average Latency
     if (response.averageLatency && response.averageLatency > 0) {
       document.getElementById("debugLatency").textContent = `${Math.round(response.averageLatency)}ms`;
     } else {
       document.getElementById("debugLatency").textContent = "-";
     }
 
-    // Reconnect Attempts
     document.getElementById("debugReconnects").textContent = response.reconnectAttempts || 0;
 
-    // Offscreen Document
     document.getElementById("debugOffscreen").textContent = response.offscreenDocumentActive ? "Ativo" : "Inativo";
 
-    // Capture Duration
     if (response.captureStartTime) {
       const captureDuration = Date.now() - response.captureStartTime;
       document.getElementById("debugCaptureDuration").textContent = formatDuration(captureDuration);
@@ -170,7 +150,6 @@ async function updateDebugInfo() {
       document.getElementById("debugCaptureDuration").textContent = "-";
     }
 
-    // Last Error
     if (response.lastError) {
       document.getElementById("debugErrorGroup").style.display = "flex";
       const errorText = response.lastError.length > 50 
@@ -182,7 +161,6 @@ async function updateDebugInfo() {
       document.getElementById("debugErrorGroup").style.display = "none";
     }
 
-    // Last Transcription
     if (response.lastTranscription) {
       const transcriptionText = response.lastTranscription.length > 100
         ? response.lastTranscription.substring(0, 100) + "..."
@@ -198,8 +176,8 @@ async function updateDebugInfo() {
 
 function startDebugUpdates() {
   if (debugUpdateInterval) return;
-  updateDebugInfo(); // Atualizar imediatamente
-  debugUpdateInterval = setInterval(updateDebugInfo, 1000); // Atualizar a cada segundo
+  updateDebugInfo();
+  debugUpdateInterval = setInterval(updateDebugInfo, 1000);
 }
 
 function stopDebugUpdates() {
@@ -209,7 +187,6 @@ function stopDebugUpdates() {
   }
 }
 
-// Toggle do painel de debug
 if (debugToggle && debugContent) {
   debugToggle.addEventListener("click", () => {
     const isExpanded = debugContent.style.display !== "none";
@@ -224,14 +201,12 @@ if (debugToggle && debugContent) {
   });
 }
 
-// Inicializar debug se já estiver capturando
 chrome.runtime.sendMessage({ type: "get_status" }, (response) => {
   if (response && response.isCapturing && debugContent && debugContent.style.display !== "none") {
     startDebugUpdates();
   }
 });
 
-// Atualizar debug ao abrir o popup se o painel estiver expandido
 if (debugContent && debugContent.style.display !== "none") {
   updateDebugInfo();
 }

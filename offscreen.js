@@ -1,11 +1,8 @@
-// offscreen.js
-
 let mediaRecorder;
-let stream; // Referência global para o stream
-let audioChunkSize; // Armazena o tamanho do chunk vindo do background
-let captureLoop; // Referência para o nosso loop de captura (setTimeout)
+let stream;
+let audioChunkSize;
+let captureLoop;
 
-// Escuta por mensagens do background script
 chrome.runtime.onMessage.addListener(handleMessages);
 
 async function handleMessages(message) {
@@ -25,7 +22,6 @@ async function handleMessages(message) {
   }
 }
 
-// Inicia a captura de áudio usando o streamId fornecido
 async function startCapture(streamId, chunkSize) {
   if (stream) {
     console.warn("A captura já está em andamento.");
@@ -45,14 +41,12 @@ async function startCapture(streamId, chunkSize) {
 
     audioChunkSize = chunkSize;
 
-    // 🔊 REPRODUZ O ÁUDIO CAPTURADO PARA O USUÁRIO (Opcional, mas estava no seu)
     const audioElement = new Audio();
     audioElement.srcObject = stream;
     audioElement.autoplay = true;
     audioElement.muted = false;
     document.body.appendChild(audioElement);
 
-    // Inicia o loop de gravação
     startRecordingLoop();
 
   } catch (error) {
@@ -64,9 +58,8 @@ async function startCapture(streamId, chunkSize) {
   }
 }
 
-// Esta é a nova função de loop
 function startRecordingLoop() {
-  if (!stream) return; // Parou
+  if (!stream) return;
 
   mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
 
@@ -84,15 +77,11 @@ function startRecordingLoop() {
   };
 
   mediaRecorder.onstop = () => {
-    // Quando 'stop()' é chamado, o 'ondataavailable' acima é disparado.
-    // Assim que ele termina, este 'onstop' reinicia o loop para a próxima gravação.
-    startRecordingLoop(); // Reinicia o loop
+    startRecordingLoop();
   };
 
-  mediaRecorder.start(); // Começa a gravar
+  mediaRecorder.start();
 
-  // Agenda o 'stop()' para daqui a 'audioChunkSize' milissegundos.
-  // Isso força o 'ondataavailable' a ser disparado com um arquivo completo.
   captureLoop = setTimeout(() => {
     if (mediaRecorder?.state === "recording") {
       mediaRecorder.stop();
@@ -100,26 +89,21 @@ function startRecordingLoop() {
   }, audioChunkSize);
 }
 
-
-// Para a captura de áudio
 function stopCapture() {
   console.log("[offscreen] trying to stop tab capture");
 
-  // Para o loop de reinício
   if (captureLoop) {
     clearTimeout(captureLoop);
     captureLoop = null;
   }
 
-  // Para o stream
   if (stream) {
     stream.getTracks().forEach((track) => track.stop());
     stream = null;
   }
 
-  // Para o mediaRecorder se ele estiver ativo
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    mediaRecorder.onstop = null; // Impede que ele reinicie
+    mediaRecorder.onstop = null;
     mediaRecorder.stop();
     mediaRecorder = null;
   }

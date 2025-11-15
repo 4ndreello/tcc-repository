@@ -8,9 +8,8 @@ const CONFIG = {
   audioChunkSize: 1000,
 };
 
-// Sistema de debug
 const debugStats = {
-  wsState: "disconnected", // disconnected, connecting, connected, error
+  wsState: "disconnected",
   connectionStartTime: null,
   audioChunksSent: 0,
   audioBytesSent: 0,
@@ -24,6 +23,8 @@ const debugStats = {
   captureStartTime: null,
   averageLatency: 0,
   latencySamples: [],
+  lastChunkTime: null,
+  currentTabId: null,
 };
 
 function updateDebugStats() {
@@ -32,11 +33,9 @@ function updateDebugStats() {
 
 function addLatencySample(latencyMs) {
   debugStats.latencySamples.push(latencyMs);
-  // Manter apenas os últimos 50 samples
   if (debugStats.latencySamples.length > 50) {
     debugStats.latencySamples.shift();
   }
-  // Calcular média
   const sum = debugStats.latencySamples.reduce((a, b) => a + b, 0);
   debugStats.averageLatency = sum / debugStats.latencySamples.length;
   updateDebugStats();
@@ -102,7 +101,6 @@ function connectWebSocket() {
         debugStats.lastTranscription = data.text || data.translatedText || "";
         debugStats.lastTranscriptionTime = receiveTime;
         
-        // Calcular latência se o servidor enviou timestamp
         if (data.timestamp) {
           const latency = receiveTime - data.timestamp;
           addLatencySample(latency);
@@ -166,17 +164,16 @@ async function startCapture(tabId) {
     debugStats.reconnectAttempts = 0;
     debugStats.latencySamples = [];
     debugStats.averageLatency = 0;
+    debugStats.lastChunkTime = null;
+    debugStats.currentTabId = tabId;
     updateDebugStats();
 
     await setupOffscreenDocument();
 
-    // Tentar ativar a aba executando um script simples primeiro
-    // Isso ajuda a garantir que a extensão foi "invocada" para a aba
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
         func: () => {
-          // Script vazio apenas para ativar a aba
           console.log("Activating tab for extension");
         },
       });
@@ -197,14 +194,12 @@ async function startCapture(tabId) {
 
     connectWebSocket();
 
-    // Garantir que o content.js está carregado
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
         files: ["content.js"],
       });
     } catch (e) {
-      // Content script já pode estar carregado, ignorar erro
       console.log("Content script may already be loaded");
     }
 
@@ -219,9 +214,7 @@ async function startCapture(tabId) {
     isCapturing = false;
     currentTabId = null;
     
-    // Verificar se é erro de activeTab
     if (error.message && error.message.includes("activeTab")) {
-      // Notificar o content script sobre o erro
       try {
         chrome.tabs.sendMessage(tabId, {
           type: "capture_error",
@@ -256,6 +249,7 @@ async function stopCapture() {
   currentTabId = null;
   debugStats.captureStartTime = null;
   debugStats.wsState = "disconnected";
+  debugStats.currentTabId = null;
   updateStatus("idle");
   updateDebugStats();
   console.log("Stop capture command sent.");
@@ -287,8 +281,6 @@ async function checkPermissionsOnTab(tab) {
 }
 
 chrome.action.onClicked.addListener(async (tab) => {
-  // O clique no ícone apenas ativa a aba para permitir tabCapture
-  // O controle de iniciar/parar é feito pelo botão no overlay
   console.log("Action icon clicked: Activating tab for extension...");
   
   const hasPermission = await checkPermissionsOnTab(tab);
@@ -297,7 +289,6 @@ chrome.action.onClicked.addListener(async (tab) => {
     return;
   }
 
-  // Executar um script simples para ativar a aba (concede activeTab permission)
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -306,14 +297,12 @@ chrome.action.onClicked.addListener(async (tab) => {
       },
     });
     
-    // Notificar o content script que a aba foi ativada
     try {
       await chrome.tabs.sendMessage(tab.id, {
         type: "tab_activated",
         message: "Tab activated! You can now use the Start button.",
       });
     } catch (e) {
-      // Content script pode não estar carregado ainda, não é problema
       console.log("Content script not ready yet");
     }
   } catch (error) {
@@ -327,7 +316,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     switch (request.type) {
       case "start_capture_from_content":
-        // Iniciar captura a partir do content script
         try {
           const tabId = sender.tab?.id;
           if (!tabId) {
@@ -335,7 +323,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return;
           }
 
-          // Obter informações da tab
           const tab = await chrome.tabs.get(tabId);
           if (!tab) {
             sendResponse({ success: false, error: "Tab not found" });
@@ -350,7 +337,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
           if (isCapturing && currentTabId === tabId) {
             sendResponse({ success: true, message: "Already capturing" });
-            // Notificar content.js que a captura já está ativa
             try {
               chrome.tabs.sendMessage(tabId, { type: "capture_started" });
             } catch (e) {
@@ -363,14 +349,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             await startCapture(tabId);
             sendResponse({ success: true });
             
-            // Notificar content.js que a captura foi iniciada
             try {
               chrome.tabs.sendMessage(tabId, { type: "capture_started" });
             } catch (e) {
               console.warn("Could not send capture_started message:", e);
             }
           } catch (error) {
-            // Se for erro de activeTab, retornar erro específico
             if (error.message && error.message.includes("activeTab")) {
               sendResponse({
                 success: false,
@@ -388,7 +372,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         break;
       case "stop_capture":
         await stopCapture();
-        // Notificar content.js que a captura foi parada
         if (currentTabId) {
           try {
             chrome.tabs.sendMessage(currentTabId, { type: "capture_stopped" });
@@ -412,13 +395,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (websocket?.readyState === WebSocket.OPEN) {
           console.log("sending new translation");
           const audioData = request.audio;
-          // Estimar tamanho do áudio (base64 é ~33% maior que o original)
-          // Remover prefixo data:audio/webm;base64, se existir
           const base64Data = audioData.includes(',') ? audioData.split(',')[1] : audioData;
-          const audioSize = Math.floor(base64Data.length * 0.75); // Aproximação do tamanho real
+          const audioSize = Math.floor(base64Data.length * 0.75);
           
           debugStats.audioChunksSent++;
           debugStats.audioBytesSent += audioSize;
+          debugStats.lastChunkTime = Date.now();
           updateDebugStats();
           
           websocket.send(

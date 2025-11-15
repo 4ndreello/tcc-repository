@@ -8,6 +8,15 @@ if (!document.getElementById("translation-overlay")) {
         Live Translation
       </span>
       <div class="overlay-controls">
+        <button class="debug-bug-btn" id="debugBugBtn" title="Debug Panel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <path d="M14 2v6h6"></path>
+            <path d="M10 13h4"></path>
+            <path d="M10 17h4"></path>
+            <path d="M8 9h1"></path>
+          </svg>
+        </button>
         <button class="start-stop-btn" id="startStopBtn">▶ Start</button>
         <button class="minimize-btn">−</button>
         <button class="close-btn">×</button>
@@ -72,11 +81,9 @@ if (!document.getElementById("translation-overlay")) {
   let isMinimized = false;
   let isCapturing = false;
 
-  // Função para iniciar/parar a captura
   async function toggleCapture() {
     try {
       if (!isCapturing) {
-        // Iniciar captura
         startStopBtn.textContent = "⏸ Stop";
         startStopBtn.disabled = true;
         
@@ -84,7 +91,6 @@ if (!document.getElementById("translation-overlay")) {
         transcriptEl.textContent = "Starting capture...";
         transcriptEl.classList.add("waiting");
 
-        // Verificar se é uma página permitida
         const url = window.location.href;
         if (
           url.startsWith("chrome://") ||
@@ -97,7 +103,6 @@ if (!document.getElementById("translation-overlay")) {
           return;
         }
 
-        // Solicitar início da captura ao background
         chrome.runtime.sendMessage(
           { type: "start_capture_from_content" },
           (response) => {
@@ -113,8 +118,7 @@ if (!document.getElementById("translation-overlay")) {
               isCapturing = true;
               transcriptEl.textContent = "Waiting for audio...";
             } else if (response && response.error === "activeTab") {
-              // Erro específico de activeTab - mostrar mensagem clara
-              transcriptEl.textContent = "⚠️ Please click the extension icon in the toolbar first, then try again.";
+              transcriptEl.textContent = "Please click the extension icon in the toolbar first, then try again.";
               transcriptEl.style.color = "#fbbf24";
               startStopBtn.textContent = "▶ Start";
             } else {
@@ -124,7 +128,6 @@ if (!document.getElementById("translation-overlay")) {
           }
         );
       } else {
-        // Parar captura
         startStopBtn.textContent = "▶ Start";
         startStopBtn.disabled = true;
         isCapturing = false;
@@ -219,9 +222,8 @@ if (!document.getElementById("translation-overlay")) {
         isCapturing = false;
       }
     } else if (request.type === "tab_activated") {
-      // Tab foi ativada pelo clique no ícone
       const transcriptEl = overlay.querySelector(".continuous-transcript");
-      transcriptEl.textContent = "✓ Tab activated! Click 'Start' to begin transcription.";
+        transcriptEl.textContent = "Tab activated! Click 'Start' to begin transcription.";
       transcriptEl.style.color = "#4ade80";
       setTimeout(() => {
         transcriptEl.style.color = "#fff";
@@ -230,7 +232,6 @@ if (!document.getElementById("translation-overlay")) {
     }
   });
 
-  // Verificar status ao carregar
   chrome.runtime.sendMessage({ type: "get_status" }, (response) => {
     if (response && response.isCapturing) {
       isCapturing = true;
@@ -240,4 +241,20 @@ if (!document.getElementById("translation-overlay")) {
       transcriptEl.classList.remove("waiting");
     }
   });
+
+  let debugPanel = null;
+  const debugBugBtn = overlay.querySelector("#debugBugBtn");
+  
+  setTimeout(() => {
+    if (window.DebugPanel) {
+      debugPanel = new window.DebugPanel();
+      
+      debugBugBtn.addEventListener("click", () => {
+        debugPanel.toggle();
+        debugBugBtn.classList.toggle("active", debugPanel.isOpen);
+      });
+    } else {
+      console.error("DebugPanel class not found");
+    }
+  }, 100);
 }

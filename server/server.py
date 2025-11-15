@@ -15,35 +15,25 @@ import whisper
 import numpy as np
 import torch
 
-# --- NOVAS IMPORTAÇÕES ---
 import logging.handlers
 import datetime
-# --- FIM DAS NOVAS IMPORTAÇÕES ---
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- INÍCIO DA MODIFICAÇÃO: CONFIGURAÇÃO DO LOGGER DE DADOS ---
-# Define o nome do arquivo de log de performance
 DATA_LOG_FILE = "server_performance.txt"
 
-# Cria um logger separado para os dados de performance
 data_logger = logging.getLogger('performance')
 data_logger.setLevel(logging.INFO)
-data_logger.propagate = False  # Impede que os logs de dados apareçam no console
+data_logger.propagate = False
 
-# Configura o handler do arquivo (RotatingFileHandler para evitar arquivos gigantes)
-# 5MB por arquivo, mantém 2 arquivos de backup
 file_handler = logging.handlers.RotatingFileHandler(
     DATA_LOG_FILE, maxBytes=5*1024*1024, backupCount=2
 )
 
-# Define um formato simples: apenas a mensagem, pois vamos formatá-la manualmente
 file_handler.setFormatter(logging.Formatter('%(message)s'))
 data_logger.addHandler(file_handler)
 
-# Escreve o cabeçalho no arquivo .txt se ele for novo ou estiver vazio
-# Este formato é TSV (Tab-Separated Values), fácil de importar no Excel
 if not os.path.exists(DATA_LOG_FILE) or os.path.getsize(DATA_LOG_FILE) == 0:
     data_logger.info(
         "timestamp_iso\t"
@@ -52,12 +42,11 @@ if not os.path.exists(DATA_LOG_FILE) or os.path.getsize(DATA_LOG_FILE) == 0:
         "throughput_x_realtime\t"
         "device"
     )
-# --- FIM DA MODIFICAÇÃO ---
 
 
-SAMPLE_RATE = 16000 # Taxa de amostragem do Whisper
-MAX_BUFFER_SECONDS = 20 # Manter um "histórico" de 20 segundos (a "janela")
-OVERLAP_SECONDS = 3   # Manter 3s de áudio anterior para dar contexto
+SAMPLE_RATE = 16000
+MAX_BUFFER_SECONDS = 20
+OVERLAP_SECONDS = 3
 
 class AudioProcessor:
     def __init__(self, model_size: str = "base", ffmpeg_path: str = None):
@@ -115,16 +104,51 @@ class AudioProcessor:
             if input_path and os.path.exists(input_path): 
                 os.unlink(input_path)
 
-    async def transcribe_buffer(self, audio_buffer: np.ndarray) -> Optional[Dict[str, Any]]:
+    async def transcribe_buffer(self, audio_buffer: np.ndarray, language: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Transcreve o buffer de áudio.
+        
+        Args:
+            audio_buffer: Buffer de áudio numpy array
+            language: Idioma para usar (opcional). Se fornecido, melhora performance
+                     pois evita detecção automática. Ex: "pt", "en", "es"
+        
+        Returns:
+            Dict com text, translatedText, language e language_probs (se disponível)
+        """
         try:
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, lambda: self.whisper_model.transcribe(audio_buffer, fp16=False))
+            
+            # Preparar parâmetros para transcribe
+            transcribe_kwargs = {"fp16": False}
+            if language:
+                # Especificar idioma melhora performance e precisão
+                # O modelo não precisa calcular probabilidades para todos os idiomas
+                transcribe_kwargs["language"] = language
+                logger.debug(f"Using specified language: {language} (performance optimized)")
+            
+            result = await loop.run_in_executor(
+                None, 
+                lambda: self.whisper_model.transcribe(audio_buffer, **transcribe_kwargs)
+            )
+            
             original_text = result.get("text", "").strip()
+            detected_language = result.get("language", "unknown")
 
             if not original_text:
                 return None
             
-            return {"text": original_text, "translatedText": original_text}
+            response = {
+                "text": original_text, 
+                "translatedText": original_text,
+                "language": detected_language
+            }
+            
+            # O Whisper também pode retornar 'language_probs' se disponível
+            if "language_probs" in result:
+                response["language_probs"] = result["language_probs"]
+            
+            return response
         
         except Exception as e:
             logger.error(f"error during transcription: {e}")
@@ -138,13 +162,19 @@ async def handler(websocket):
     if not processor.is_initialized:
         await processor.initialize_models()
     
-    # --- Lógica de Estado (Buffer) ---
     max_samples = SAMPLE_RATE * MAX_BUFFER_SECONDS
-    overlap_samples = SAMPLE_RATE * OVERLAP_SECONDS # Amostras de sobreposição
+    overlap_samples = SAMPLE_RATE * OVERLAP_SECONDS
     
-    audio_buffer = np.array([], dtype=np.float32)     # A "janela" de áudio de 20s
-    final_transcript = ""                             # O seu "texto salvo localmente"
-    last_sent_text = ""                               # Para evitar repetições
+    audio_buffer = np.array([], dtype=np.float32)
+    final_transcript = ""
+    last_sent_text = ""
+    detected_language = None
+    language_probs = None
+    
+    # Estratégia de otimização: após detectar o mesmo idioma algumas vezes,
+    # usar esse idioma para melhorar performance nas próximas transcrições
+    language_confidence_count = 0
+    CONFIDENCE_THRESHOLD = 3  # Após 3 detecções consistentes, usar o idioma
 
     try:
         async for message in websocket:
@@ -167,56 +197,79 @@ async def handler(websocket):
                     logger.warning("skipping chunk, decoding failed.")
                     continue
 
-                # 1. Adiciona o novo áudio ao buffer da janela atual
                 audio_buffer = np.concatenate([audio_buffer, decoded_np])
                 
-                current_window_text = "" # Texto "temporário" da janela atual
+                current_window_text = ""
 
-                # 2. A janela está cheia? (20s)
                 if len(audio_buffer) >= max_samples:
                     logger.info(f"--- JANELA DE {MAX_BUFFER_SECONDS}s CHEIA ---")
                     
-                    # 3. Transcreve a janela *inteira* para "finalizar"
-                    result = await processor.transcribe_buffer(audio_buffer)
+                    # Usar idioma detectado anteriormente para otimizar performance
+                    # Se já temos confiança no idioma, passar para o Whisper
+                    language_to_use = detected_language if language_confidence_count >= CONFIDENCE_THRESHOLD else None
+                    
+                    result = await processor.transcribe_buffer(audio_buffer, language=language_to_use)
                     text_to_finalize = result.get("text", "") if result else ""
                     
-                    # 4. Salva o texto
+                    # Atualizar idioma detectado e contador de confiança
+                    if result:
+                        new_language = result.get("language")
+                        if new_language and new_language != "unknown":
+                            if new_language == detected_language:
+                                # Mesmo idioma detectado - aumentar confiança
+                                language_confidence_count += 1
+                            else:
+                                # Idioma diferente - resetar contador
+                                detected_language = new_language
+                                language_confidence_count = 1
+                            
+                            if "language_probs" in result:
+                                language_probs = result.get("language_probs")
+                    
                     final_transcript += text_to_finalize + " "
-                    logger.info(f"Texto finalizado: {text_to_finalize}")
+                    logger.info(f"Texto finalizado: {text_to_finalize} (lang: {detected_language}, confidence: {language_confidence_count})")
 
-                    # 5. Limpa o buffer, mas mantém a sobreposição (os últimos 3s)
                     audio_buffer = audio_buffer[max_samples - overlap_samples:]
                 
                 else:
-                    # A janela ainda está enchendo (0-19s)
-                    # Transcreve o buffer atual para dar um "preview"
-                    result = await processor.transcribe_buffer(audio_buffer)
+                    # Usar idioma detectado anteriormente para otimizar performance
+                    language_to_use = detected_language if language_confidence_count >= CONFIDENCE_THRESHOLD else None
+                    
+                    result = await processor.transcribe_buffer(audio_buffer, language=language_to_use)
                     current_window_text = result.get("text", "") if result else ""
-                # *** FIM DA MODIFICAÇÃO ***
+                    
+                    # Atualizar idioma detectado e contador de confiança
+                    if result:
+                        new_language = result.get("language")
+                        if new_language and new_language != "unknown":
+                            if new_language == detected_language:
+                                # Mesmo idioma detectado - aumentar confiança
+                                language_confidence_count += 1
+                            else:
+                                # Idioma diferente - resetar contador
+                                detected_language = new_language
+                                language_confidence_count = 1
+                            
+                            if "language_probs" in result:
+                                language_probs = result.get("language_probs")
 
 
                 end_time = time.perf_counter()
                 processing_ms = (end_time - start_time) * 1000
                 
-                # --- INÍCIO DA MODIFICAÇÃO: LOG DE PERFORMANCE ---
                 decoded_duration_s = 0.0
                 throughput_x_rt = 0.0
                 
-                # Calcula a duração real do áudio decodificado
                 if decoded_np is not None:
                     decoded_duration_s = len(decoded_np) / SAMPLE_RATE
                 
                 processing_duration_s = processing_ms / 1000.0
 
                 if processing_duration_s > 0:
-                    # Calcula o "throughput" como "X vezes o tempo real"
-                    # Ex: Se processou 1s de áudio em 0.5s, o throughput é 2.0x
                     throughput_x_rt = decoded_duration_s / processing_duration_s
 
-                # Obtém o timestamp atual em formato ISO
                 log_timestamp = datetime.datetime.utcnow().isoformat()
                 
-                # Loga os dados no arquivo 'server_performance.txt'
                 data_logger.info(
                     f"{log_timestamp}\t"
                     f"{processing_ms:.4f}\t"
@@ -224,9 +277,7 @@ async def handler(websocket):
                     f"{throughput_x_rt:.4f}\t"
                     f"{processor.device}"
                 )
-                # --- FIM DA MODIFICAÇÃO ---
 
-                # 6. Envia o texto completo (Salvo + Preview da janela atual)
                 full_text_to_send = final_transcript + current_window_text
 
                 if full_text_to_send and full_text_to_send != last_sent_text:
@@ -235,12 +286,19 @@ async def handler(websocket):
                     response = {
                         "type": "transcription", 
                         "text": full_text_to_send, 
-                        "translatedText": full_text_to_send, # Mudar aqui se tiver tradução real
+                        "translatedText": full_text_to_send,
                         "timestamp": int(time.time() * 1000)
                     }
+                    
+                    # Incluir informações de idioma se disponíveis
+                    if detected_language:
+                        response["language"] = detected_language
+                    if language_probs:
+                        response["language_probs"] = language_probs
+                    
                     await websocket.send(json.dumps(response))
                     
-                    logger.info(f"transcription SENT: '{full_text_to_send}' (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms)")
+                    logger.info(f"transcription SENT: '{full_text_to_send}' (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms, language: {detected_language or 'unknown'})")
                 
                 elif full_text_to_send:
                     logger.info(f"transcription SKIPPED (redundant). (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms)")
@@ -257,9 +315,7 @@ async def main():
     logger.info("in-memory audio processing server started")
     logger.info(f"address: ws://{host}:{port}")
     logger.info(f"buffer size: {MAX_BUFFER_SECONDS}s window, {OVERLAP_SECONDS}s overlap")
-    # --- MODIFICAÇÃO: Loga o local do arquivo de dados ---
     logger.info(f"performance data will be logged to: {DATA_LOG_FILE}")
-    # --- FIM DA MODIFICAÇÃO ---
     logger.info("=============================================")
     async with websockets.serve(handler, host, port):
         await asyncio.Future()
