@@ -48,7 +48,6 @@ async function startCapture(streamId, chunkSize) {
     document.body.appendChild(audioElement);
 
     startRecordingLoop();
-
   } catch (error) {
     console.error("Erro ao iniciar a captura no offscreen:", error);
     chrome.runtime.sendMessage({

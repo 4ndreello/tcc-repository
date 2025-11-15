@@ -86,7 +86,7 @@ if (!document.getElementById("translation-overlay")) {
       if (!isCapturing) {
         startStopBtn.textContent = "⏸ Stop";
         startStopBtn.disabled = true;
-        
+
         const transcriptEl = overlay.querySelector(".continuous-transcript");
         transcriptEl.textContent = "Starting capture...";
         transcriptEl.classList.add("waiting");
@@ -97,7 +97,8 @@ if (!document.getElementById("translation-overlay")) {
           url.startsWith("chrome-extension://") ||
           url.startsWith("edge://")
         ) {
-          transcriptEl.textContent = "Cannot capture from browser system pages.";
+          transcriptEl.textContent =
+            "Cannot capture from browser system pages.";
           startStopBtn.textContent = "▶ Start";
           startStopBtn.disabled = false;
           return;
@@ -108,21 +109,29 @@ if (!document.getElementById("translation-overlay")) {
           (response) => {
             startStopBtn.disabled = false;
             if (chrome.runtime.lastError) {
-              console.error("Error starting capture:", chrome.runtime.lastError);
+              console.error(
+                "Error starting capture:",
+                chrome.runtime.lastError
+              );
               transcriptEl.textContent = `Error: ${chrome.runtime.lastError.message}`;
               startStopBtn.textContent = "▶ Start";
               return;
             }
-            
+
             if (response && response.success) {
               isCapturing = true;
               transcriptEl.textContent = "Waiting for audio...";
+              transcriptEl.classList.add("waiting");
             } else if (response && response.error === "activeTab") {
-              transcriptEl.textContent = "Please click the extension icon in the toolbar first, then try again.";
+              transcriptEl.textContent =
+                "Please click the extension icon in the toolbar first, then try again.";
               transcriptEl.style.color = "#fbbf24";
               startStopBtn.textContent = "▶ Start";
             } else {
-              transcriptEl.textContent = response?.message || response?.error || "Failed to start capture";
+              transcriptEl.textContent =
+                response?.message ||
+                response?.error ||
+                "Failed to start capture";
               startStopBtn.textContent = "▶ Start";
             }
           }
@@ -135,7 +144,8 @@ if (!document.getElementById("translation-overlay")) {
         chrome.runtime.sendMessage({ type: "stop_capture" }, (response) => {
           startStopBtn.disabled = false;
           const transcriptEl = overlay.querySelector(".continuous-transcript");
-          transcriptEl.textContent = "Transcription stopped. Click 'Start' to begin again.";
+          transcriptEl.textContent =
+            "Transcription stopped. Click 'Start' to begin again.";
           transcriptEl.classList.add("waiting");
         });
       }
@@ -215,20 +225,28 @@ if (!document.getElementById("translation-overlay")) {
       // Tratar erro de captura
       if (request.error === "activeTab") {
         const transcriptEl = overlay.querySelector(".continuous-transcript");
-        transcriptEl.textContent = "⚠️ Please click the extension icon in the toolbar first, then try again.";
+        transcriptEl.textContent =
+          "⚠️ Please click the extension icon in the toolbar first, then try again.";
         transcriptEl.style.color = "#fbbf24";
         startStopBtn.textContent = "▶ Start";
         startStopBtn.disabled = false;
         isCapturing = false;
       }
     } else if (request.type === "tab_activated") {
-      const transcriptEl = overlay.querySelector(".continuous-transcript");
-        transcriptEl.textContent = "Tab activated! Click 'Start' to begin transcription.";
-      transcriptEl.style.color = "#4ade80";
-      setTimeout(() => {
-        transcriptEl.style.color = "#fff";
-        transcriptEl.textContent = "Click 'Start' to begin transcription.";
-      }, 3000);
+      // Só atualizar o texto se não estiver capturando
+      if (!isCapturing) {
+        const transcriptEl = overlay.querySelector(".continuous-transcript");
+        transcriptEl.textContent =
+          "Tab activated! Click 'Start' to begin transcription.";
+        transcriptEl.style.color = "#4ade80";
+        setTimeout(() => {
+          // Verificar novamente se não está capturando antes de resetar
+          if (!isCapturing) {
+            transcriptEl.style.color = "#fff";
+            transcriptEl.textContent = "Click 'Start' to begin transcription.";
+          }
+        }, 3000);
+      }
     }
   });
 
@@ -238,17 +256,17 @@ if (!document.getElementById("translation-overlay")) {
       startStopBtn.textContent = "⏸ Stop";
       const transcriptEl = overlay.querySelector(".continuous-transcript");
       transcriptEl.textContent = "Waiting for audio...";
-      transcriptEl.classList.remove("waiting");
+      transcriptEl.classList.add("waiting");
     }
   });
 
   let debugPanel = null;
   const debugBugBtn = overlay.querySelector("#debugBugBtn");
-  
+
   setTimeout(() => {
     if (window.DebugPanel) {
       debugPanel = new window.DebugPanel();
-      
+
       debugBugBtn.addEventListener("click", () => {
         debugPanel.toggle();
         debugBugBtn.classList.toggle("active", debugPanel.isOpen);

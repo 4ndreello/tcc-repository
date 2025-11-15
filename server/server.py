@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 SAMPLE_RATE = 16000
-MAX_BUFFER_SECONDS = 13
+MAX_BUFFER_SECONDS = 10
 OVERLAP_SECONDS = 3
 
 class AudioProcessor:

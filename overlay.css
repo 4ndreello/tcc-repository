@@ -89,7 +89,7 @@
 }
 
 .debug-bug-btn.active {
-  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  background: #3b82f6;
   box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
 }
 
@@ -177,7 +177,6 @@
   word-break: break-word;
   transition: color 0.3s ease;
 }
-
 
 /* Animations */
 @keyframes pulse {

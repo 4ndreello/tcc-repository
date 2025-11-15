@@ -24,12 +24,9 @@ const debugStats = {
   averageLatency: 0,
   latencySamples: [],
   lastChunkTime: null,
+  lastChunkTimestamp: null, // Timestamp do último chunk enviado
   currentTabId: null,
 };
-
-function updateDebugStats() {
-  chrome.storage.local.set({ debugStats: { ...debugStats } });
-}
 
 function addLatencySample(latencyMs) {
   debugStats.latencySamples.push(latencyMs);
@@ -38,7 +35,6 @@ function addLatencySample(latencyMs) {
   }
   const sum = debugStats.latencySamples.reduce((a, b) => a + b, 0);
   debugStats.averageLatency = sum / debugStats.latencySamples.length;
-  updateDebugStats();
 }
 
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
@@ -51,7 +47,6 @@ async function setupOffscreenDocument() {
 
   if (existingContexts.length > 0) {
     debugStats.offscreenDocumentActive = true;
-    updateDebugStats();
     return;
   }
 
@@ -62,13 +57,11 @@ async function setupOffscreenDocument() {
   });
 
   debugStats.offscreenDocumentActive = true;
-  updateDebugStats();
 }
 
 async function closeOffscreenDocument() {
   await chrome.offscreen.closeDocument().catch(() => {});
   debugStats.offscreenDocumentActive = false;
-  updateDebugStats();
 }
 
 function connectWebSocket() {
@@ -77,7 +70,6 @@ function connectWebSocket() {
   try {
     debugStats.wsState = "connecting";
     debugStats.connectionStartTime = Date.now();
-    updateDebugStats();
 
     websocket = new WebSocket(CONFIG.wsUrl);
 
@@ -88,7 +80,6 @@ function connectWebSocket() {
       debugStats.lastError = null;
       debugStats.lastErrorTime = null;
       updateStatus("connected");
-      updateDebugStats();
     };
 
     websocket.onmessage = (event) => {
@@ -101,12 +92,19 @@ function connectWebSocket() {
         debugStats.lastTranscription = data.text || data.translatedText || "";
         debugStats.lastTranscriptionTime = receiveTime;
 
-        if (data.timestamp) {
-          const latency = receiveTime - data.timestamp;
-          addLatencySample(latency);
+        // Calcular latência como tempo desde o último chunk enviado até receber a transcrição
+        // Isso dá uma medida mais precisa do round-trip time
+        if (debugStats.lastChunkTimestamp) {
+          const latency = receiveTime - debugStats.lastChunkTimestamp;
+          // Só adicionar se a latência for razoável (entre 0 e 60 segundos)
+          // Isso evita valores absurdos causados por problemas de sincronização
+          if (latency > 0 && latency < 60000) {
+            addLatencySample(latency);
+          }
+          // Resetar o timestamp para que a próxima transcrição use o timestamp do próximo chunk
+          // Isso evita que múltiplas transcrições usem o mesmo timestamp
+          debugStats.lastChunkTimestamp = null;
         }
-
-        updateDebugStats();
 
         chrome.tabs.sendMessage(currentTabId, {
           type: "new_translation",
@@ -123,18 +121,15 @@ function connectWebSocket() {
       debugStats.lastError = error.message || "WebSocket connection error";
       debugStats.lastErrorTime = Date.now();
       updateStatus("error");
-      updateDebugStats();
     };
 
     websocket.onclose = () => {
       console.log("WebSocket closed");
       debugStats.wsState = "disconnected";
       updateStatus("disconnected");
-      updateDebugStats();
 
       if (isCapturing) {
         debugStats.reconnectAttempts++;
-        updateDebugStats();
         setTimeout(connectWebSocket, CONFIG.reconnectDelay);
       }
     };
@@ -144,7 +139,6 @@ function connectWebSocket() {
     debugStats.lastError = error.message || "Failed to create WebSocket";
     debugStats.lastErrorTime = Date.now();
     updateStatus("error");
-    updateDebugStats();
   }
 }
 
@@ -166,7 +160,6 @@ async function startCapture(tabId) {
     debugStats.averageLatency = 0;
     debugStats.lastChunkTime = null;
     debugStats.currentTabId = tabId;
-    updateDebugStats();
 
     await setupOffscreenDocument();
 
@@ -210,7 +203,6 @@ async function startCapture(tabId) {
     debugStats.lastError = error.message || "Failed to start capture";
     debugStats.lastErrorTime = Date.now();
     updateStatus("error");
-    updateDebugStats();
     isCapturing = false;
     currentTabId = null;
 
@@ -251,8 +243,8 @@ async function stopCapture() {
   debugStats.captureStartTime = null;
   debugStats.wsState = "disconnected";
   debugStats.currentTabId = null;
+  debugStats.lastChunkTimestamp = null; // Resetar timestamp do chunk
   updateStatus("idle");
-  updateDebugStats();
   console.log("Stop capture command sent.");
 }
 
@@ -410,21 +402,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
           debugStats.audioChunksSent++;
           debugStats.audioBytesSent += audioSize;
-          debugStats.lastChunkTime = Date.now();
-          updateDebugStats();
+          const chunkTimestamp = Date.now();
+          debugStats.lastChunkTime = chunkTimestamp;
+          debugStats.lastChunkTimestamp = chunkTimestamp; // Guardar timestamp para cálculo de latência
 
           websocket.send(
             JSON.stringify({
               type: "audio_chunk",
               audio: audioData,
               duration: CONFIG.audioChunkSize,
-              timestamp: Date.now(),
+              timestamp: chunkTimestamp,
             })
           );
         } else {
           debugStats.lastError = "WebSocket not open, cannot send audio chunk";
           debugStats.lastErrorTime = Date.now();
-          updateDebugStats();
         }
         break;
       case "capture_error":
