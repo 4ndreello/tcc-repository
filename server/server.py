@@ -15,37 +15,12 @@ import whisper
 import numpy as np
 import torch
 
-import logging.handlers
-import datetime
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-DATA_LOG_FILE = "server_performance.txt"
-
-data_logger = logging.getLogger('performance')
-data_logger.setLevel(logging.INFO)
-data_logger.propagate = False
-
-file_handler = logging.handlers.RotatingFileHandler(
-    DATA_LOG_FILE, maxBytes=5*1024*1024, backupCount=2
-)
-
-file_handler.setFormatter(logging.Formatter('%(message)s'))
-data_logger.addHandler(file_handler)
-
-if not os.path.exists(DATA_LOG_FILE) or os.path.getsize(DATA_LOG_FILE) == 0:
-    data_logger.info(
-        "timestamp_iso\t"
-        "processing_latency_ms\t"
-        "decoded_audio_duration_s\t"
-        "throughput_x_realtime\t"
-        "device"
-    )
-
 
 SAMPLE_RATE = 16000
-MAX_BUFFER_SECONDS = 20
+MAX_BUFFER_SECONDS = 13
 OVERLAP_SECONDS = 3
 
 class AudioProcessor:
@@ -133,20 +108,23 @@ class AudioProcessor:
             )
             
             original_text = result.get("text", "").strip()
-            detected_language = result.get("language", "unknown")
+            whisper_detected_language = result.get("language", "unknown")
 
             if not original_text:
                 return None
             
+            # Sempre retornar pt-BR quando o Whisper detectar português (pt)
+            # Isso garante que sempre será português do Brasil
+            if whisper_detected_language == "pt":
+                final_language = "pt-BR"
+            else:
+                final_language = whisper_detected_language
+            
             response = {
                 "text": original_text, 
                 "translatedText": original_text,
-                "language": detected_language
+                "language": final_language
             }
-            
-            # O Whisper também pode retornar 'language_probs' se disponível
-            if "language_probs" in result:
-                response["language_probs"] = result["language_probs"]
             
             return response
         
@@ -168,13 +146,11 @@ async def handler(websocket):
     audio_buffer = np.array([], dtype=np.float32)
     final_transcript = ""
     last_sent_text = ""
-    detected_language = None
-    language_probs = None
     
-    # Estratégia de otimização: após detectar o mesmo idioma algumas vezes,
-    # usar esse idioma para melhorar performance nas próximas transcrições
-    language_confidence_count = 0
-    CONFIDENCE_THRESHOLD = 3  # Após 3 detecções consistentes, usar o idioma
+    # SEMPRE usar português do Brasil (pt-BR)
+    # Isso melhora performance e garante que sempre será português brasileiro
+    FIXED_LANGUAGE = "pt"  # Whisper usa "pt" para português, mas retornaremos "pt-BR"
+    detected_language = "pt-BR"  # Sempre retornar pt-BR na resposta
 
     try:
         async for message in websocket:
@@ -204,79 +180,23 @@ async def handler(websocket):
                 if len(audio_buffer) >= max_samples:
                     logger.info(f"--- JANELA DE {MAX_BUFFER_SECONDS}s CHEIA ---")
                     
-                    # Usar idioma detectado anteriormente para otimizar performance
-                    # Se já temos confiança no idioma, passar para o Whisper
-                    language_to_use = detected_language if language_confidence_count >= CONFIDENCE_THRESHOLD else None
-                    
-                    result = await processor.transcribe_buffer(audio_buffer, language=language_to_use)
+                    # SEMPRE usar português (pt) para melhor performance e precisão
+                    result = await processor.transcribe_buffer(audio_buffer, language=FIXED_LANGUAGE)
                     text_to_finalize = result.get("text", "") if result else ""
                     
-                    # Atualizar idioma detectado e contador de confiança
-                    if result:
-                        new_language = result.get("language")
-                        if new_language and new_language != "unknown":
-                            if new_language == detected_language:
-                                # Mesmo idioma detectado - aumentar confiança
-                                language_confidence_count += 1
-                            else:
-                                # Idioma diferente - resetar contador
-                                detected_language = new_language
-                                language_confidence_count = 1
-                            
-                            if "language_probs" in result:
-                                language_probs = result.get("language_probs")
-                    
                     final_transcript += text_to_finalize + " "
-                    logger.info(f"Texto finalizado: {text_to_finalize} (lang: {detected_language}, confidence: {language_confidence_count})")
+                    logger.info(f"Texto finalizado: {text_to_finalize} (lang: {detected_language})")
 
                     audio_buffer = audio_buffer[max_samples - overlap_samples:]
                 
                 else:
-                    # Usar idioma detectado anteriormente para otimizar performance
-                    language_to_use = detected_language if language_confidence_count >= CONFIDENCE_THRESHOLD else None
-                    
-                    result = await processor.transcribe_buffer(audio_buffer, language=language_to_use)
+                    # SEMPRE usar português (pt) para melhor performance e precisão
+                    result = await processor.transcribe_buffer(audio_buffer, language=FIXED_LANGUAGE)
                     current_window_text = result.get("text", "") if result else ""
-                    
-                    # Atualizar idioma detectado e contador de confiança
-                    if result:
-                        new_language = result.get("language")
-                        if new_language and new_language != "unknown":
-                            if new_language == detected_language:
-                                # Mesmo idioma detectado - aumentar confiança
-                                language_confidence_count += 1
-                            else:
-                                # Idioma diferente - resetar contador
-                                detected_language = new_language
-                                language_confidence_count = 1
-                            
-                            if "language_probs" in result:
-                                language_probs = result.get("language_probs")
 
 
                 end_time = time.perf_counter()
                 processing_ms = (end_time - start_time) * 1000
-                
-                decoded_duration_s = 0.0
-                throughput_x_rt = 0.0
-                
-                if decoded_np is not None:
-                    decoded_duration_s = len(decoded_np) / SAMPLE_RATE
-                
-                processing_duration_s = processing_ms / 1000.0
-
-                if processing_duration_s > 0:
-                    throughput_x_rt = decoded_duration_s / processing_duration_s
-
-                log_timestamp = datetime.datetime.utcnow().isoformat()
-                
-                data_logger.info(
-                    f"{log_timestamp}\t"
-                    f"{processing_ms:.4f}\t"
-                    f"{decoded_duration_s:.4f}\t"
-                    f"{throughput_x_rt:.4f}\t"
-                    f"{processor.device}"
-                )
 
                 full_text_to_send = final_transcript + current_window_text
 
@@ -287,21 +207,16 @@ async def handler(websocket):
                         "type": "transcription", 
                         "text": full_text_to_send, 
                         "translatedText": full_text_to_send,
-                        "timestamp": int(time.time() * 1000)
+                        "timestamp": int(time.time() * 1000),
+                        "language": detected_language  # Sempre pt-BR
                     }
-                    
-                    # Incluir informações de idioma se disponíveis
-                    if detected_language:
-                        response["language"] = detected_language
-                    if language_probs:
-                        response["language_probs"] = language_probs
                     
                     await websocket.send(json.dumps(response))
                     
-                    logger.info(f"transcription SENT: '{full_text_to_send}' (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms, language: {detected_language or 'unknown'})")
+                    logger.info(f"transcription SENT: '{full_text_to_send}' (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms, language: {detected_language})")
                 
                 elif full_text_to_send:
-                    logger.info(f"transcription SKIPPED (redundant). (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s, time: {processing_ms:.2f} ms)")
+                    logger.info(f"transcription SKIPPED (redundant). (buffer: {len(audio_buffer)/SAMPLE_RATE:.2f}s)")
                     
     except websockets.ConnectionClosed:
         logger.info(f"client disconnected: {websocket.remote_address}")
@@ -315,7 +230,6 @@ async def main():
     logger.info("in-memory audio processing server started")
     logger.info(f"address: ws://{host}:{port}")
     logger.info(f"buffer size: {MAX_BUFFER_SECONDS}s window, {OVERLAP_SECONDS}s overlap")
-    logger.info(f"performance data will be logged to: {DATA_LOG_FILE}")
     logger.info("=============================================")
     async with websockets.serve(handler, host, port):
         await asyncio.Future()

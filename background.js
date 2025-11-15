@@ -3,9 +3,9 @@ let isCapturing = false;
 let currentTabId = null;
 
 const CONFIG = {
-  wsUrl: "ws://localhost:8080",
+  wsUrl: "ws://e99ea13da820.ngrok-free.app",
   reconnectDelay: 3000,
-  audioChunkSize: 1000,
+  audioChunkSize: 500,
 };
 
 const debugStats = {
@@ -60,7 +60,7 @@ async function setupOffscreenDocument() {
     reasons: ["USER_MEDIA"],
     justification: "Necessary to capture tab audio.",
   });
-  
+
   debugStats.offscreenDocumentActive = true;
   updateDebugStats();
 }
@@ -95,19 +95,19 @@ function connectWebSocket() {
       console.log("event received", event);
       const receiveTime = Date.now();
       const data = JSON.parse(event.data);
-      
+
       if (data.type === "transcription" && currentTabId) {
         debugStats.transcriptionsReceived++;
         debugStats.lastTranscription = data.text || data.translatedText || "";
         debugStats.lastTranscriptionTime = receiveTime;
-        
+
         if (data.timestamp) {
           const latency = receiveTime - data.timestamp;
           addLatencySample(latency);
         }
-        
+
         updateDebugStats();
-        
+
         chrome.tabs.sendMessage(currentTabId, {
           type: "new_translation",
           text: data.text,
@@ -131,7 +131,7 @@ function connectWebSocket() {
       debugStats.wsState = "disconnected";
       updateStatus("disconnected");
       updateDebugStats();
-      
+
       if (isCapturing) {
         debugStats.reconnectAttempts++;
         updateDebugStats();
@@ -213,19 +213,20 @@ async function startCapture(tabId) {
     updateDebugStats();
     isCapturing = false;
     currentTabId = null;
-    
+
     if (error.message && error.message.includes("activeTab")) {
       try {
         chrome.tabs.sendMessage(tabId, {
           type: "capture_error",
           error: "activeTab",
-          message: "Please click the extension icon first to activate this page, then try again.",
+          message:
+            "Please click the extension icon first to activate this page, then try again.",
         });
       } catch (e) {
         console.warn("Could not send error message to content script:", e);
       }
     }
-    
+
     throw error;
   }
 }
@@ -282,7 +283,7 @@ async function checkPermissionsOnTab(tab) {
 
 chrome.action.onClicked.addListener(async (tab) => {
   console.log("Action icon clicked: Activating tab for extension...");
-  
+
   const hasPermission = await checkPermissionsOnTab(tab);
   if (!hasPermission) {
     console.warn("Cannot activate tab - restricted page");
@@ -296,7 +297,7 @@ chrome.action.onClicked.addListener(async (tab) => {
         console.log("Extension activated for this tab");
       },
     });
-    
+
     try {
       await chrome.tabs.sendMessage(tab.id, {
         type: "tab_activated",
@@ -331,7 +332,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
           const hasPermission = await checkPermissionsOnTab(tab);
           if (!hasPermission) {
-            sendResponse({ success: false, error: "Cannot capture from this page" });
+            sendResponse({
+              success: false,
+              error: "Cannot capture from this page",
+            });
             return;
           }
 
@@ -348,7 +352,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           try {
             await startCapture(tabId);
             sendResponse({ success: true });
-            
+
             try {
               chrome.tabs.sendMessage(tabId, { type: "capture_started" });
             } catch (e) {
@@ -359,7 +363,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               sendResponse({
                 success: false,
                 error: "activeTab",
-                message: "Please click the extension icon in the toolbar first to activate this page, then try again.",
+                message:
+                  "Please click the extension icon in the toolbar first to activate this page, then try again.",
               });
             } else {
               throw error;
@@ -367,7 +372,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
         } catch (error) {
           console.error("Error starting capture from content:", error);
-          sendResponse({ success: false, error: error.message || "Failed to start capture" });
+          sendResponse({
+            success: false,
+            error: error.message || "Failed to start capture",
+          });
         }
         break;
       case "stop_capture":
@@ -395,14 +403,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (websocket?.readyState === WebSocket.OPEN) {
           console.log("sending new translation");
           const audioData = request.audio;
-          const base64Data = audioData.includes(',') ? audioData.split(',')[1] : audioData;
+          const base64Data = audioData.includes(",")
+            ? audioData.split(",")[1]
+            : audioData;
           const audioSize = Math.floor(base64Data.length * 0.75);
-          
+
           debugStats.audioChunksSent++;
           debugStats.audioBytesSent += audioSize;
           debugStats.lastChunkTime = Date.now();
           updateDebugStats();
-          
+
           websocket.send(
             JSON.stringify({
               type: "audio_chunk",
@@ -418,7 +428,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         break;
       case "capture_error":
-        console.error("Capture error received from offscreen:", request.message);
+        console.error(
+          "Capture error received from offscreen:",
+          request.message
+        );
         await stopCapture();
         break;
     }
