@@ -17,7 +17,13 @@ if (!document.getElementById("translation-overlay")) {
             <path d="M8 9h1"></path>
           </svg>
         </button>
+        <select class="language-select" id="languageSelect" title="Select language">
+          <option value="pt">Portuguese</option>
+          <option value="en">English</option>
+          <option value="auto">Auto Detect</option>
+        </select>
         <button class="start-stop-btn" id="startStopBtn">▶ Start</button>
+        <button class="reset-btn" id="resetBtn" title="Reset connection and clear context">↻</button>
         <button class="minimize-btn">−</button>
         <button class="close-btn">×</button>
       </div>
@@ -75,8 +81,10 @@ if (!document.getElementById("translation-overlay")) {
   }
 
   const startStopBtn = overlay.querySelector("#startStopBtn");
+  const resetBtn = overlay.querySelector("#resetBtn");
   const minimizeBtn = overlay.querySelector(".minimize-btn");
   const closeBtn = overlay.querySelector(".close-btn");
+  const languageSelect = overlay.querySelector("#languageSelect");
 
   let isMinimized = false;
   let isCapturing = false;
@@ -104,8 +112,10 @@ if (!document.getElementById("translation-overlay")) {
           return;
         }
 
+        const selectedLanguage = languageSelect.value;
+
         chrome.runtime.sendMessage(
-          { type: "start_capture_from_content" },
+          { type: "start_capture_from_content", language: selectedLanguage },
           (response) => {
             startStopBtn.disabled = false;
             if (chrome.runtime.lastError) {
@@ -120,6 +130,7 @@ if (!document.getElementById("translation-overlay")) {
 
             if (response && response.success) {
               isCapturing = true;
+              // Não desabilitar o seletor - permitir mudanças durante a captura
               transcriptEl.textContent = "Waiting for audio...";
               transcriptEl.classList.add("waiting");
             } else if (response && response.error === "activeTab") {
@@ -158,6 +169,49 @@ if (!document.getElementById("translation-overlay")) {
 
   startStopBtn.addEventListener("click", toggleCapture);
 
+  // Botão de reset - mata conexão e zera contexto
+  resetBtn.addEventListener("click", () => {
+    lastText = ""; // Resetar texto anterior
+    if (isCapturing) {
+      // Primeiro parar a captura
+      chrome.runtime.sendMessage({ type: "stop_capture" }, () => {
+        // Depois resetar conexão e contexto
+        chrome.runtime.sendMessage({ type: "reset_connection" }, (response) => {
+          const transcriptEl = overlay.querySelector(".continuous-transcript");
+          transcriptEl.textContent = "Connection reset. Click 'Start' to begin with fresh context.";
+          transcriptEl.classList.add("waiting");
+          isCapturing = false;
+          startStopBtn.textContent = "▶ Start";
+        });
+      });
+    } else {
+      // Se não está capturando, apenas resetar conexão
+      chrome.runtime.sendMessage({ type: "reset_connection" }, (response) => {
+        const transcriptEl = overlay.querySelector(".continuous-transcript");
+        transcriptEl.textContent = "Connection reset. Click 'Start' to begin.";
+        transcriptEl.classList.add("waiting");
+      });
+    }
+  });
+
+  // Fechar conexão quando a aba é fechada ou recarregada
+  window.addEventListener("beforeunload", () => {
+    if (isCapturing) {
+      chrome.runtime.sendMessage({ type: "stop_capture" });
+    }
+  });
+
+  // Permitir mudança de idioma durante a captura
+  languageSelect.addEventListener("change", () => {
+    if (isCapturing) {
+      const selectedLanguage = languageSelect.value;
+      chrome.runtime.sendMessage({
+        type: "change_language",
+        language: selectedLanguage
+      });
+    }
+  });
+
   minimizeBtn.addEventListener("click", () => {
     isMinimized = !isMinimized;
     if (isMinimized) {
@@ -176,15 +230,81 @@ if (!document.getElementById("translation-overlay")) {
     chrome.runtime.sendMessage({ type: "stop_capture" });
   });
 
+  let lastText = "";
+  let highlightTimeouts = [];
+
   function addTranslation(data) {
     console.log("add translation", data);
     const transcriptEl = overlay.querySelector(".continuous-transcript");
 
     if (data.translatedText) {
-      transcriptEl.textContent = data.translatedText;
+      const newText = data.translatedText;
+      const currentText = transcriptEl.textContent.trim();
+      
+      // Limpar todos os timeouts anteriores
+      highlightTimeouts.forEach(timeout => clearTimeout(timeout));
+      highlightTimeouts = [];
+      
+      // Se há texto anterior e o novo texto é uma continuação, apenas adicionar o novo
+      if (lastText && newText.length > lastText.length && newText.startsWith(lastText.trim())) {
+        const newPart = newText.slice(lastText.length).trim();
+        
+        if (newPart) {
+          // Limpar highlights antigos que ainda estão visíveis
+          const oldHighlights = transcriptEl.querySelectorAll(".text-new");
+          oldHighlights.forEach(span => {
+            const text = span.textContent;
+            span.replaceWith(document.createTextNode(text));
+          });
+          
+          // Adicionar apenas o novo trecho com destaque
+          const newSpan = document.createElement("span");
+          newSpan.className = "text-new";
+          newSpan.textContent = newPart;
+          
+          // Adicionar espaço se necessário
+          if (currentText && !currentText.endsWith(" ") && !currentText.endsWith("\n")) {
+            transcriptEl.appendChild(document.createTextNode(" "));
+          }
+          
+          transcriptEl.appendChild(newSpan);
+          
+          // Remover destaque após 2 segundos
+          const timeout1 = setTimeout(() => {
+            if (newSpan.parentNode) {
+              newSpan.classList.add("fade-out-highlight");
+              const timeout2 = setTimeout(() => {
+                if (newSpan.parentNode) {
+                  const text = newSpan.textContent;
+                  newSpan.replaceWith(document.createTextNode(text));
+                }
+              }, 600);
+              highlightTimeouts.push(timeout2);
+            }
+          }, 2000);
+          highlightTimeouts.push(timeout1);
+        }
+      } else {
+        // Texto completamente novo - substituir tudo
+        // Limpar todos os highlights primeiro
+        const allHighlights = transcriptEl.querySelectorAll(".text-new");
+        allHighlights.forEach(span => {
+          const text = span.textContent;
+          span.replaceWith(document.createTextNode(text));
+        });
+        
+        // Atualizar o texto
+        transcriptEl.textContent = newText;
+      }
+      
+      lastText = newText;
       transcriptEl.classList.remove("waiting");
 
-      content.scrollTop = content.scrollHeight;
+      // Scroll suave para o final
+      content.scrollTo({
+        top: content.scrollHeight,
+        behavior: "smooth"
+      });
     }
 
     const statusDot = overlay.querySelector(".status-dot");
@@ -216,6 +336,7 @@ if (!document.getElementById("translation-overlay")) {
       transcriptEl.style.color = "#fff"; // Resetar cor
     } else if (request.type === "capture_stopped") {
       isCapturing = false;
+      lastText = ""; // Resetar texto anterior
       startStopBtn.textContent = "▶ Start";
       const transcriptEl = overlay.querySelector(".continuous-transcript");
       transcriptEl.textContent = "Transcription stopped.";

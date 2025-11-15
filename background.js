@@ -1,6 +1,7 @@
 let websocket = null;
 let isCapturing = false;
 let currentTabId = null;
+let selectedLanguage = "pt"; // Idioma padrão: Português
 
 const CONFIG = {
   wsUrl: "ws://e99ea13da820.ngrok-free.app",
@@ -87,6 +88,16 @@ function connectWebSocket() {
       debugStats.lastError = null;
       debugStats.lastErrorTime = null;
       updateStatus("connected");
+
+      // Enviar configuração de idioma ao conectar
+      if (selectedLanguage) {
+        websocket.send(
+          JSON.stringify({
+            type: "language_config",
+            language: selectedLanguage,
+          })
+        );
+      }
     };
 
     websocket.onmessage = (event) => {
@@ -149,7 +160,7 @@ function connectWebSocket() {
   }
 }
 
-async function startCapture(tabId) {
+async function startCapture(tabId, language = "pt") {
   if (isCapturing) {
     console.warn("Capture is already in progress.");
     return;
@@ -158,6 +169,7 @@ async function startCapture(tabId) {
   try {
     isCapturing = true;
     currentTabId = tabId;
+    selectedLanguage = language || "pt"; // Armazenar idioma selecionado
     debugStats.captureStartTime = Date.now();
     debugStats.audioChunksSent = 0;
     debugStats.audioBytesSent = 0;
@@ -248,6 +260,7 @@ async function stopCapture() {
 
   isCapturing = false;
   currentTabId = null;
+  selectedLanguage = "pt"; // Resetar para padrão
   debugStats.captureStartTime = null;
   debugStats.wsState = "disconnected";
   debugStats.currentTabId = null;
@@ -320,6 +333,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       case "start_capture_from_content":
         try {
           const tabId = sender.tab?.id;
+          const language = request.language || "pt"; // Receber idioma da mensagem
+
           if (!tabId) {
             sendResponse({ success: false, error: "No tab ID available" });
             return;
@@ -341,6 +356,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
 
           if (isCapturing && currentTabId === tabId) {
+            // Se já está capturando, apenas atualizar o idioma se necessário
+            if (language !== selectedLanguage) {
+              selectedLanguage = language;
+              // Enviar nova configuração de idioma se WebSocket estiver aberto
+              if (websocket?.readyState === WebSocket.OPEN) {
+                websocket.send(
+                  JSON.stringify({
+                    type: "language_config",
+                    language: selectedLanguage,
+                  })
+                );
+              }
+            }
             sendResponse({ success: true, message: "Already capturing" });
             try {
               chrome.tabs.sendMessage(tabId, { type: "capture_started" });
@@ -351,7 +379,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
 
           try {
-            await startCapture(tabId);
+            await startCapture(tabId, language);
             sendResponse({ success: true });
 
             try {
@@ -386,6 +414,54 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             chrome.tabs.sendMessage(currentTabId, { type: "capture_stopped" });
           } catch (e) {
             console.warn("Could not send capture_stopped message:", e);
+          }
+        }
+        sendResponse({ success: true });
+        break;
+      case "reset_connection":
+        // Fechar conexão WebSocket e resetar estado
+        if (websocket) {
+          // Enviar comando de reset para o servidor antes de fechar
+          if (websocket.readyState === WebSocket.OPEN) {
+            websocket.send(JSON.stringify({ type: "reset_context" }));
+            // Dar um tempo para o servidor processar antes de fechar
+            setTimeout(() => {
+              websocket.close();
+              websocket = null;
+            }, 100);
+          } else {
+            websocket.close();
+            websocket = null;
+          }
+        }
+        // Se estava capturando, parar também
+        if (isCapturing) {
+          await stopCapture();
+        }
+        // Resetar estatísticas
+        debugStats.audioChunksSent = 0;
+        debugStats.audioBytesSent = 0;
+        debugStats.transcriptionsReceived = 0;
+        debugStats.latencySamples = [];
+        debugStats.allLatencySamples = [];
+        debugStats.averageLatency = 0;
+        debugStats.wsState = "disconnected";
+        sendResponse({ success: true });
+        break;
+      case "change_language":
+        // Mudar idioma durante a captura
+        const newLanguage = request.language || "pt";
+        if (isCapturing && newLanguage !== selectedLanguage) {
+          selectedLanguage = newLanguage;
+          // Enviar nova configuração de idioma se WebSocket estiver aberto
+          if (websocket?.readyState === WebSocket.OPEN) {
+            websocket.send(
+              JSON.stringify({
+                type: "language_config",
+                language: selectedLanguage,
+              })
+            );
+            console.log(`Language changed to: ${selectedLanguage}`);
           }
         }
         sendResponse({ success: true });
@@ -443,6 +519,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === currentTabId) {
+    console.log(`Tab ${tabId} closed, stopping capture and closing connection`);
     stopCapture();
+    // Fechar conexão WebSocket também
+    if (websocket) {
+      websocket.close();
+      websocket = null;
+    }
+  }
+});
+
+// Também fechar conexão quando a aba é atualizada (recarregada)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (tabId === currentTabId && changeInfo.status === "loading") {
+    console.log(`Tab ${tabId} reloading, stopping capture`);
+    stopCapture();
+    // Fechar conexão WebSocket
+    if (websocket) {
+      websocket.close();
+      websocket = null;
+    }
   }
 });
