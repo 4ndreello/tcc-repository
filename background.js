@@ -4,7 +4,7 @@ let currentTabId = null;
 let selectedLanguage = "pt"; // Idioma padrão: Português
 
 const CONFIG = {
-  wsUrl: "ws://e99ea13da820.ngrok-free.app",
+  wsUrl: "ws://90a34275710b.ngrok-free.app ",
   reconnectDelay: 3000,
   audioChunkSize: 500,
 };
